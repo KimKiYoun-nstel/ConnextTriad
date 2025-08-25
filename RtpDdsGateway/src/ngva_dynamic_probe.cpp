@@ -1,4 +1,4 @@
-#include "ngva_dynamic_probe.hpp"
+#include "ngva/ngva_dynamic_probe.hpp"
 #include <cstdio>
 
 static void dump_dynamic_data(DDS_DynamicData& d)

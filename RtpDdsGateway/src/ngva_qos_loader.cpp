@@ -1,4 +1,4 @@
-#include "ngva_qos_loader.hpp"
+#include "ngva/ngva_qos_loader.hpp"
 #include <cstdio>
 
 namespace ngva {

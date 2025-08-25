@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<dds>
+	<!-- NGVA용 라이브러리 -->
+	<qos_library name="NGVA_Library">
+
+		<!-- Participant 기본 프로파일 -->
+		<qos_profile name="Participant_Default">
+			<participant_qos>
+				<!-- 필요 시 도메인·디스커버리 세부 설정을 여기에 추가 -->
+				<transport_builtin>
+					<mask>UDPv4</mask>
+				</transport_builtin>
+				<participant_name>
+					<name>NGVA-Gateway</name>
+				</participant_name>
+			</participant_qos>
+		</qos_profile>
+
+		<!-- Publisher 기본 프로파일 -->
+		<qos_profile name="Publisher_Default">
+			<publisher_qos>
+				<entity_factory>
+					<autoenable_created_entities>true</autoenable_created_entities>
+				</entity_factory>
+			</publisher_qos>
+		</qos_profile>
+
+		<!-- Subscriber 기본 프로파일 -->
+		<qos_profile name="Subscriber_Default">
+			<subscriber_qos>
+				<entity_factory>
+					<autoenable_created_entities>true</autoenable_created_entities>
+				</entity_factory>
+			</subscriber_qos>
+		</qos_profile>
+
+		<!-- DataWriter 기본 프로파일 -->
+		<qos_profile name="Writer_Default">
+			<datawriter_qos>
+				<reliability>
+					<kind>RELIABLE_RELIABILITY_QOS</kind>
+				</reliability>
+				<history>
+					<kind>KEEP_LAST_HISTORY_QOS</kind>
+					<depth>32</depth>
+				</history>
+				<resource_limits>
+					<max_samples>1024</max_samples>
+					<max_instances>64</max_instances>
+					<max_samples_per_instance>32</max_samples_per_instance>
+				</resource_limits>
+				<durability>
+					<kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+				</durability>
+				<!-- 대량 송신 시 배칭/비동기 퍼블리시 등은 필요 시 추가 -->
+			</datawriter_qos>
+		</qos_profile>
+
+		<!-- DataReader 기본 프로파일 -->
+		<qos_profile name="Reader_Default">
+			<datareader_qos>
+				<reliability>
+					<kind>RELIABLE_RELIABILITY_QOS</kind>
+				</reliability>
+				<history>
+					<kind>KEEP_LAST_HISTORY_QOS</kind>
+					<depth>32</depth>
+				</history>
+				<resource_limits>
+					<max_samples>1024</max_samples>
+					<max_instances>64</max_instances>
+					<max_samples_per_instance>32</max_samples_per_instance>
+				</resource_limits>
+				<durability>
+					<kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+				</durability>
+
+				<!-- XTypes 타입 호환 허용(필드 추가/optional 등) -->
+				<type_consistency>
+					<kind>ALLOW_TYPE_COERCION</kind>
+				</type_consistency>
+
+				<!-- 버스트 억제를 원하면 Time-Based Filter 사용
+        <time_based_filter>
+          <minimum_separation>
+            <sec>0</sec><nanosec>20000000</nanosec>  <!-- 20ms 
+				</minimum_separation>
+				</time_based_filter>
+				-->
+			</datareader_qos>
+		</qos_profile>
+
+	</qos_library>
+</dds>
