@@ -123,7 +123,12 @@ if (NGVA_MODE)
   )
 
   # 생성 헤더 포함
-  target_include_directories(RtpDdsCore PRIVATE "${NGVA_GEN_DIR}")
+ target_include_directories(RtpDdsCore
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include      # ← public headers
+    PRIVATE
+        ${NGVA_GEN_DIR}                          # ← rtiddsgen 생성 헤더
+)
   # NGVA 소스 추가 (QoS 로더/핸들러/프로브)
   target_sources(RtpDdsCore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ngva_qos_loader.cpp
