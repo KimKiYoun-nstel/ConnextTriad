@@ -1,7 +1,8 @@
 ﻿project(RtpDdsGateway LANGUAGES CXX)
 
 # --- IDL -> generated code (Classic C++) ---
-set(IDL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/types/StringMsg.idl)
+# 여러 IDL 파일 자동 검색
+file(GLOB IDL_FILES "types/*.idl")
 set(GEN_DIR  ${CMAKE_CURRENT_BINARY_DIR}/generated)
 file(MAKE_DIRECTORY ${GEN_DIR})
 
@@ -9,29 +10,55 @@ file(MAKE_DIRECTORY ${GEN_DIR})
 set(RTIDDSGEN "$ENV{NDDSHOME}/bin/rtiddsgen.bat")
 set(RTIDDSGEN_LANG "C++98" CACHE STRING "rtiddsgen language for Classic C++ (C++ or C++03)")
 
-add_custom_command(
-  OUTPUT
-    ${GEN_DIR}/StringMsg.h
-    ${GEN_DIR}/StringMsg.cxx
-    ${GEN_DIR}/StringMsgPlugin.h
-    ${GEN_DIR}/StringMsgPlugin.cxx
-    ${GEN_DIR}/StringMsgSupport.h
-    ${GEN_DIR}/StringMsgSupport.cxx
-    COMMAND "${RTIDDSGEN}"
-          -language ${RTIDDSGEN_LANG}
-          -platform x64Win64VS2017
-          -d "${GEN_DIR}" "${IDL_FILE}"
-  DEPENDS ${IDL_FILE}
-  VERBATIM
-)
+# 생성될 파일들을 저장할 리스트
+set(GENERATED_SOURCES "")
+
+# 각 IDL 파일에 대해 코드 생성
+foreach(IDL_FILE ${IDL_FILES})
+    get_filename_component(IDL_NAME ${IDL_FILE} NAME_WE)
+    
+    # 현재 IDL 파일에서 생성될 파일들
+    set(CURRENT_GENERATED_FILES
+        ${GEN_DIR}/${IDL_NAME}.h
+        ${GEN_DIR}/${IDL_NAME}.cxx
+        ${GEN_DIR}/${IDL_NAME}Plugin.h
+        ${GEN_DIR}/${IDL_NAME}Plugin.cxx
+        ${GEN_DIR}/${IDL_NAME}Support.h
+        ${GEN_DIR}/${IDL_NAME}Support.cxx
+    )
+    
+    # rtiddsgen 명령어 실행
+    add_custom_command(
+        OUTPUT ${CURRENT_GENERATED_FILES}
+        COMMAND "${RTIDDSGEN}"
+              -language ${RTIDDSGEN_LANG}
+              -platform x64Win64VS2017
+              -d "${GEN_DIR}" "${IDL_FILE}"
+        DEPENDS ${IDL_FILE}
+        VERBATIM
+        COMMENT "Generating DDS code from ${IDL_NAME}.idl"
+    )
+    
+    # 생성된 소스 파일들을 전체 리스트에 추가
+    list(APPEND GENERATED_SOURCES 
+        ${GEN_DIR}/${IDL_NAME}.cxx
+        ${GEN_DIR}/${IDL_NAME}Plugin.cxx
+        ${GEN_DIR}/${IDL_NAME}Support.cxx
+    )
+endforeach()
+
+# 생성된 소스 파일들 출력 (디버깅용)
+message(STATUS "Generated DDS sources: ${GENERATED_SOURCES}")
 
 add_library(RtpDdsCore STATIC
   src/gateway.cpp
   src/dds_manager.cpp
   src/ipc_adapter.cpp
-  ${GEN_DIR}/StringMsg.cxx
-  ${GEN_DIR}/StringMsgPlugin.cxx
-  ${GEN_DIR}/StringMsgSupport.cxx
+  include/type_traits.hpp
+  include/data_converter.hpp
+  include/type_registry.hpp
+  include/register_macro.hpp
+  ${GENERATED_SOURCES}
 )
 
 target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

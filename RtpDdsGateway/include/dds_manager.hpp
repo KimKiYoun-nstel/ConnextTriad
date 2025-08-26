@@ -11,8 +11,13 @@
 #include <string>
 #include <unordered_map>
 #include <functional> // ⬅️ 이 줄을 추가하여 std::function을 사용할 수 있게 합니다.
+#include "type_registry.hpp"
+#include "type_traits.hpp"
+#include "data_converter.hpp"
+#include "register_macro.hpp"
 #ifdef USE_CONNEXT
 #include "StringMsgSupport.h"
+#include "AlarmMsgSupport.h"
 #include <ndds/ndds_cpp.h>
 #endif
 namespace rtpdds {
@@ -35,7 +40,8 @@ class DdsManager {
 
       public:
         using SampleHandler = std::function<void(const std::string &topic,
-                                                 const std::string &text)>;
+                                                 const std::string &type_name,
+                                                 const std::string &display)>;
         void set_on_sample(SampleHandler cb);
 
 
@@ -58,6 +64,9 @@ class DdsManager {
         std::unordered_map<std::string, DDSDataReader *> readers_;
         std::unordered_map<std::string, ReaderListener *> listeners_; // ⬅️ 추가
         SampleHandler on_sample_;                                     // ⬅️ 추가
+        // 타입 레지스트리 및 topic->type 매핑
+        TypeRegistry registry_{};
+        std::unordered_map<std::string, std::string> topic_to_type_{};
 #endif
     };
 } // namespace rtpdds

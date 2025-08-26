@@ -109,7 +109,9 @@ void MainWindow::setupUi() {
     auto *gbIO = new QGroupBox("Pub/Sub");
     auto *il = new QGridLayout(gbIO);
     leTopic_ = new QLineEdit("HelloTopic");
-    leType_ = new QLineEdit("StringMsg");
+    cbType_ = new QComboBox();
+    cbType_->setEditable(true);
+    cbType_->addItems({"StringMsg", "AlarmMsg"});
     tePayload_ = new QTextEdit("Hello from UI");
     btnWriter_ = new QPushButton("Create Writer");
     btnReader_ = new QPushButton("Create Reader");
@@ -119,7 +121,7 @@ void MainWindow::setupUi() {
     il->addWidget(leTopic_, r, 1);
     r++;
     il->addWidget(new QLabel("type"), r, 0);
-    il->addWidget(leType_, r, 1);
+    il->addWidget(cbType_, r, 1);
     r++;
     il->addWidget(btnWriter_, r, 0);
     il->addWidget(btnReader_, r, 1);
@@ -194,21 +196,59 @@ void MainWindow::pulseButton(QWidget *w) {
 void MainWindow::appendLog(const QString &line, bool isDebug) {
     if (isDebug && logLevel_ == LogLevel::Info)
         return;
-    if (teLog_) {
-        // 간단 색상 규칙
-        if (line.startsWith("[WRN]"))
-            teLog_->append(QString("<span style='color:#ffb300'>%1</span>")
-                               .arg(line.toHtmlEscaped()));
-        else if (line.startsWith("[ERR]") || line.startsWith("[FTL]"))
-            teLog_->append(QString("<span style='color:#ff5252'>%1</span>")
-                               .arg(line.toHtmlEscaped()));
-        else if (line.startsWith("[DBG]"))
-            teLog_->append(QString("<span style='color:#90caf9'>%1</span>")
-                               .arg(line.toHtmlEscaped()));
-        else
-            teLog_->append(line.toHtmlEscaped());
+    if (!teLog_) return;
+
+    auto appendJsonBlock = [this](const QString &header, const QString &jsonText) {
+        teLog_->append(header.toHtmlEscaped());
+        // JSON pretty 영역을 monospace로 감싸서 가독성 향상
+        const QString html = QString(
+                                 "<pre style='margin:4px 0;padding:6px;background:#1e1e1e;color:#dcdcdc;border-radius:4px;font-family:Consolas,monospace;'>%1</pre>")
+                                 .arg(jsonText.toHtmlEscaped());
+        teLog_->append(html);
         teLog_->moveCursor(QTextCursor::End);
+    };
+
+    // 특수 처리: SEND-REQ / RSP / EVT 내 JSON 블록을 예쁘게 출력
+    if (line.startsWith("[SEND-REQ]")) {
+        int p = line.indexOf(" json=");
+        if (p > 0) {
+            const QString header = line.left(p);
+            const QString jsonText = line.mid(p + 6);
+            appendJsonBlock(header, jsonText);
+            return;
+        }
+    } else if (line.startsWith("[RSP]")) {
+        int p = line.indexOf(" json=");
+        if (p > 0) {
+            const QString header = line.left(p);
+            const QString jsonText = line.mid(p + 6);
+            appendJsonBlock(header, jsonText);
+            return;
+        }
+    } else if (line.startsWith("[EVT] ")) {
+        // 형태: "[EVT] { ... }" → 접두부와 JSON 분리
+        int p = line.indexOf('{');
+        if (p > 0) {
+            const QString header = line.left(p).trimmed();
+            const QString jsonText = line.mid(p);
+            appendJsonBlock(header, jsonText);
+            return;
+        }
     }
+
+    // 일반 라인: 기존 색상 규칙 유지
+    if (line.startsWith("[WRN]"))
+        teLog_->append(QString("<span style='color:#ffb300'>%1</span>")
+                           .arg(line.toHtmlEscaped()));
+    else if (line.startsWith("[ERR]") || line.startsWith("[FTL]"))
+        teLog_->append(QString("<span style='color:#ff5252'>%1</span>")
+                           .arg(line.toHtmlEscaped()));
+    else if (line.startsWith("[DBG]"))
+        teLog_->append(QString("<span style='color:#90caf9'>%1</span>")
+                           .arg(line.toHtmlEscaped()));
+    else
+        teLog_->append(line.toHtmlEscaped());
+    teLog_->moveCursor(QTextCursor::End);
 }
 
 void MainWindow::onLogLevelChanged(int index) {
@@ -270,7 +310,7 @@ void MainWindow::onCreateParticipant() {
 void MainWindow::onCreateWriter() {
     pulseButton(btnWriter_);
     const std::string topic = leTopic_->text().toStdString();
-    const std::string type = leType_->text().toStdString();
+    const std::string type = cbType_->currentText().toStdString();
     const std::string qos =
         (leQosLib_->text() + "::" + leQosProf_->text()).toStdString();
 
@@ -285,7 +325,7 @@ void MainWindow::onCreateWriter() {
 void MainWindow::onCreateReader() {
     pulseButton(btnReader_);
     const std::string topic = leTopic_->text().toStdString();
-    const std::string type = leType_->text().toStdString();
+    const std::string type = cbType_->currentText().toStdString();
     const std::string qos =
         (leQosLib_->text() + "::" + leQosProf_->text()).toStdString();
 
@@ -300,7 +340,7 @@ void MainWindow::onCreateReader() {
 void MainWindow::onPublishSample() {
     pulseButton(btnPub_);
     const std::string topic = leTopic_->text().toStdString();
-    const std::string type = leType_->text().toStdString();
+    const std::string type = cbType_->currentText().toStdString();
     const std::string text = tePayload_->toPlainText().toStdString();
 
     triad::rpc::RpcBuilder rb;

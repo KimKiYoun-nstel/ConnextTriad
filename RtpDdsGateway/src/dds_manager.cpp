@@ -16,6 +16,11 @@
 namespace rtpdds {
 
     DdsManager::DdsManager() {
+#ifdef USE_CONNEXT
+        // 초기 타입 등록: 기존 타입들 한 줄씩
+        REGISTER_MESSAGE_TYPE(registry_, StringMsg);
+        REGISTER_MESSAGE_TYPE(registry_, AlarmMsg);
+#endif
     }
 
     DdsManager::~DdsManager() {
@@ -81,7 +86,7 @@ namespace rtpdds {
     }
 
     bool DdsManager::create_writer(const std::string &topic,
-                                   const std::string & /*type_name*/,
+                                   const std::string & type_name,
                                    const std::string &, const std::string &) {
 #ifndef USE_CONNEXT
         LOG_INF("DDS", "(stub) create_writer topic=%s", topic.c_str());
@@ -90,26 +95,21 @@ namespace rtpdds {
         if (!participant_ || !publisher_)
             return false;
 
-        const char *reg_type = StringMsgTypeSupport::get_type_name();
-        if (StringMsgTypeSupport::register_type(participant_, reg_type) !=
-            DDS_RETCODE_OK) {
-            std::cerr << "[DDS Classic] register_type failed\n";
-            return false;
-        }
+        auto it = registry_.by_name.find(type_name);
+        if (it == registry_.by_name.end()) return false;
+        const auto &e = it->second;
+        if (!e.register_type(participant_)) return false;
 
         DDS_TopicQos tqos;
         participant_->get_default_topic_qos(tqos);
-        DDSTopic *t = participant_->create_topic(topic.c_str(), reg_type, tqos,
+        DDSTopic *t = participant_->create_topic(topic.c_str(), e.get_type_name(), tqos,
                                                  NULL, DDS_STATUS_MASK_NONE);
         if (!t) {
             LOG_ERR("DDS", "create_topic failed topic=%s", topic.c_str());
             return false;
         }
 
-        DDS_DataWriterQos wqos;
-        publisher_->get_default_datawriter_qos(wqos);
-        DDSDataWriter *w =
-            publisher_->create_datawriter(t, wqos, NULL, DDS_STATUS_MASK_NONE);
+        DDSDataWriter *w = (DDSDataWriter*) e.create_writer(publisher_, t);
         if (!w) {
             LOG_ERR("DDS", "create_datawriter failed topic=%s", topic.c_str());
             return false;
@@ -117,12 +117,13 @@ namespace rtpdds {
         LOG_INF("DDS", "writer created topic=%s", topic.c_str());
 
         writers_[topic] = w;
+        topic_to_type_[topic] = type_name;
         return true;
 #endif
     }
 
     bool DdsManager::create_reader(const std::string &topic,
-                                   const std::string & /*type_name*/,
+                                   const std::string & type_name,
                                    const std::string &, const std::string &) {
 #ifndef USE_CONNEXT
         LOG_INF("DDS", "(stub) create_reader topic=%s", topic.c_str());
@@ -131,26 +132,21 @@ namespace rtpdds {
         if (!participant_ || !subscriber_)
             return false;
 
-        const char *reg_type = StringMsgTypeSupport::get_type_name();
-        if (StringMsgTypeSupport::register_type(participant_, reg_type) !=
-            DDS_RETCODE_OK) {
-            std::cerr << "[DDS Classic] register_type failed\n";
-            return false;
-        }
+        auto it = registry_.by_name.find(type_name);
+        if (it == registry_.by_name.end()) return false;
+        const auto &e = it->second;
+        if (!e.register_type(participant_)) return false;
 
         DDS_TopicQos tqos;
         participant_->get_default_topic_qos(tqos);
-        DDSTopic *t = participant_->create_topic(topic.c_str(), reg_type, tqos,
+        DDSTopic *t = participant_->create_topic(topic.c_str(), e.get_type_name(), tqos,
                                                  NULL, DDS_STATUS_MASK_NONE);
         if (!t) {
             LOG_ERR("DDS", "create_topic failed topic=%s", topic.c_str());
             return false;
         }
 
-        DDS_DataReaderQos rqos;
-        subscriber_->get_default_datareader_qos(rqos);
-        DDSDataReader *r =
-            subscriber_->create_datareader(t, rqos, NULL, DDS_STATUS_MASK_NONE);
+        DDSDataReader *r = (DDSDataReader*) e.create_reader(subscriber_, t);
         if (!r) {
             LOG_ERR("DDS", "create_datareader failed topic=%s", topic.c_str());
             return false;
@@ -162,6 +158,7 @@ namespace rtpdds {
         listeners_[topic] = lst;
 
         readers_[topic] = r;
+        topic_to_type_[topic] = type_name;
         LOG_INF("DDS", "reader created topic=%s", topic.c_str());
         return true;
 #endif
@@ -177,24 +174,12 @@ namespace rtpdds {
         auto it = writers_.find(topic);
         if (it == writers_.end())
             return false;
-        StringMsgDataWriter *w = StringMsgDataWriter::narrow(it->second);
-        if (!w) {
-            std::cerr << "narrow writer failed\n";
-            return false;
-        }
-        StringMsg sample;
-        sample.text = (char *)DDS_String_dup(text.c_str());
-        DDS_InstanceHandle_t nil_handle;
-        std::memset(&nil_handle, 0, sizeof(nil_handle));
-        const DDS_ReturnCode_t rc = w->write(sample, nil_handle);
-        DDS_String_free(sample.text);
-        if (rc != DDS_RETCODE_OK) {
-            LOG_ERR("DDS", "write failed topic=%s rc=%d", topic.c_str(),
-                    (int)rc);
-            return false;
-        }
-        LOG_INF("DDS", "write ok topic=%s size=%zu", topic.c_str(),
-                text.size());
+        const std::string &type_name = topic_to_type_[topic];
+        auto it2 = registry_.by_name.find(type_name);
+        if (it2 == registry_.by_name.end()) return false;
+        const bool ok = it2->second.publish_from_text(it->second, text);
+        if (!ok) return false;
+        LOG_INF("DDS", "write ok topic=%s size=%zu", topic.c_str(), text.size());
         return true;
 #endif
     }
@@ -204,34 +189,11 @@ namespace rtpdds {
     }
 
     void DdsManager::ReaderListener::on_data_available(DDSDataReader *reader) {
-        StringMsgDataReader *tr = StringMsgDataReader::narrow(reader);
-        if (!tr) {
-            LOG_ERR("DDS", "narrow reader failed");
-            return;
-        }
-
-        StringMsgSeq data_seq;
-        DDS_SampleInfoSeq info_seq;
-        DDS_ReturnCode_t rc = tr->take(data_seq, info_seq, DDS_LENGTH_UNLIMITED,
-                                       DDS_ANY_SAMPLE_STATE, DDS_ANY_VIEW_STATE,
-                                       DDS_ANY_INSTANCE_STATE);
-
-        if (rc == DDS_RETCODE_NO_DATA)
-            return;
-        if (rc != DDS_RETCODE_OK) {
-            LOG_ERR("DDS", "take failed rc=%d", (int)rc);
-            return;
-        }
-
-        for (int i = 0; i < data_seq.length(); ++i) {
-            if (info_seq[i].valid_data) {
-                const char *txt = data_seq[i].text ? data_seq[i].text : "";
-                LOG_INF("DDS", "recv topic=%s text=%s", topic.c_str(), txt);
-                if (owner.on_sample_)
-                    owner.on_sample_(topic, std::string(txt));
-            }
-        }
-        tr->return_loan(data_seq, info_seq);
+        const std::string &type_name = owner.topic_to_type_[topic];
+        auto it = owner.registry_.by_name.find(type_name);
+        if (it == owner.registry_.by_name.end()) return;
+        std::string disp = it->second.take_one_to_display(reader);
+        if (!disp.empty() && owner.on_sample_) owner.on_sample_(topic, type_name, disp);
     }
 
 } // namespace rtpdds

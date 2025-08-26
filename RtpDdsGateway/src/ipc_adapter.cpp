@@ -194,11 +194,11 @@ namespace rtpdds {
 
         // DDS에서 샘플 수신 시 EVT 전송(JSON→CBOR)
         mgr_.set_on_sample(
-            [this](const std::string &topic, const std::string &text) {
+            [this](const std::string &topic, const std::string &type_name, const std::string &display) {
                 nlohmann::json evt = {{"evt", "data"},
                                       {"topic", topic},
-                                      {"type", "StringMsg"},
-                                      {"sample", {{"text", text}}}};
+                                      {"type", type_name},
+                                      {"display", display}};
                 auto out = nlohmann::json::to_cbor(evt);
                 ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(),
                                 (uint32_t)out.size());

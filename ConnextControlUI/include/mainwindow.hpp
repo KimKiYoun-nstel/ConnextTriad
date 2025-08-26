@@ -55,7 +55,7 @@ class MainWindow final : public QMainWindow {
     QLineEdit *leQosLib_{nullptr};
     QLineEdit *leQosProf_{nullptr};
     QLineEdit *leTopic_{nullptr};
-    QLineEdit *leType_{nullptr};
+    QComboBox *cbType_{nullptr};
     QTextEdit *tePayload_{nullptr};
     QTextEdit *teLog_{nullptr};
 
