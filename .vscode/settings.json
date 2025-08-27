@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "unordered_map": "cpp",
+        "cstring": "cpp",
+        "string": "cpp",
+        "thread": "cpp",
+        "atomic": "cpp",
+        "cstdint": "cpp",
+        "vector": "cpp"
+    }
+}

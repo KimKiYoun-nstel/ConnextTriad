@@ -13,24 +13,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
 
     // 레거시 경로(겸용 유지)
-    cb.on_ack = [this](const Header &h) {
-        appendLog(QString("[ACK] id=%1").arg(h.corr_id));
-        statusBar()->showMessage(QString("ACK id=%1").arg(h.corr_id), 1500);
-    };
-    cb.on_error = [this](const Header &h, const dkmrtp::ipc::RspError &e,
-                         const char *msg) {
-        appendLog(QString("[ERR] id=%1 code=%2 msg=%3")
-                      .arg(h.corr_id)
-                      .arg(e.err_code)
-                      .arg(QString::fromUtf8(msg)));
-        statusBar()->showMessage(
-            QString("ERR id=%1 code=%2").arg(h.corr_id).arg(e.err_code), 3000);
-    };
-    cb.on_evt_data = [this](const Header &, const uint8_t *body) {
-        appendLog(
-            QString("[EVT_DATA] %1")
-                .arg(QString::fromUtf8(reinterpret_cast<const char *>(body))));
-    };
+        // 불필요한 콜백 제거됨. REQ/RSP/EVT만 남김.
 
     // 새 경로(REQ/RSP/EVT = CBOR 페이로드)
     cb.on_response = [this](const Header &h, const uint8_t *body,

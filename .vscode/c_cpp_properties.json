@@ -1,0 +1,12 @@
+{
+  "configurations": [
+    {
+      "name": "Win32",
+      "defines": [
+        "USE_CONNEXT"
+      ],
+      // ...existing config...
+    }
+  ],
+  "version": 4
+}

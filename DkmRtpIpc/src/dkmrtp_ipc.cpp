@@ -88,10 +88,12 @@ namespace dkmrtp {
             if (!sock_)
                 return false;
             Header h;
-            h.type = type;
-            h.corr_id = corr_id;
-            h.length = len;
-            h.ts_ns = now_ns();
+            h.magic = htonl(0x52495043);
+            h.version = htons(0x0001);
+            h.type = htons(type);
+            h.corr_id = htonl(corr_id);
+            h.length = htonl(len);
+            h.ts_ns = htonll(now_ns());
 
             std::lock_guard<std::mutex> lk(send_mtx_);
             SOCKET s = *reinterpret_cast<SOCKET *>(sock_);
@@ -104,25 +106,26 @@ namespace dkmrtp {
                 bufs[1].len = len;
                 DWORD sent = 0;
                 int rc = WSASend(s, bufs, 2, &sent, 0, nullptr, nullptr);
-                return rc == 0;
+                return rc == 0 && sent == sizeof(h) + len;
             } else {
                 if (!last_peer_.valid)
                     return false;
                 sockaddr_in peer{};
                 peer.sin_family = AF_INET;
-                peer.sin_addr.S_un.S_addr = last_peer_.addr_be;
+                peer.sin_addr.s_addr = last_peer_.addr_be;
                 peer.sin_port = last_peer_.port_be;
 
-                int rc = sendto(s, (const char *)&h, sizeof(h), 0,
-                                (sockaddr *)&peer, sizeof(peer));
-                if (rc == SOCKET_ERROR)
+                // 헤더+페이로드 합치기
+                size_t total_len = sizeof(Header) + len;
+                std::vector<uint8_t> packet(total_len);
+                memcpy(packet.data(), &h, sizeof(Header));
+                if (payload && len)
+                    memcpy(packet.data() + sizeof(Header), payload, len);
+
+                int rc = sendto(s, reinterpret_cast<const char*>(packet.data()), (int)total_len, 0,
+                                reinterpret_cast<sockaddr*>(&peer), sizeof(peer));
+                if (rc == SOCKET_ERROR || rc != (int)total_len)
                     return false;
-                if (payload && len) {
-                    rc = sendto(s, (const char *)payload, len, 0,
-                                (sockaddr *)&peer, sizeof(peer));
-                    if (rc == SOCKET_ERROR)
-                        return false;
-                }
                 return true;
             }
         }
@@ -179,7 +182,7 @@ namespace dkmrtp {
                     if (recvd <= (int)sizeof(Header))
                         continue;
 
-                    last_peer_.addr_be = peer.sin_addr.S_un.S_addr;      // network-order
+                    last_peer_.addr_be = peer.sin_addr.s_addr;      // network-order
                     last_peer_.port_be = peer.sin_port; // network-order
                     last_peer_.valid = true;
 
@@ -190,10 +193,29 @@ namespace dkmrtp {
                         continue;
                 }
 
-                Header h;
-                memcpy(&h, buf.data(), sizeof(h));
-                const uint8_t *payload = buf.data() + sizeof(h);
-                size_t plen = recvd - sizeof(h);
+                // --- IPC Packet 헤더 검증 및 엔디안 변환 ---
+                if (recvd < (int)sizeof(Header))
+                    continue;
+                Header wire{};
+                memcpy(&wire, buf.data(), sizeof(wire));
+                Header h{};
+                h.magic = ntohl(wire.magic);
+                h.version = ntohs(wire.version);
+                h.type = ntohs(wire.type);
+                h.corr_id = ntohl(wire.corr_id);
+                h.length = ntohl(wire.length);
+                h.ts_ns = ntohll(wire.ts_ns);
+
+                const uint8_t *payload = buf.data() + sizeof(Header);
+                size_t plen = recvd - sizeof(Header);
+
+                // 헤더 검증
+                if (h.magic != 0x52495043)
+                    continue;
+                if (h.version != 0x0001)
+                    continue;
+                if (h.length != plen)
+                    continue;
 
                 switch (h.type) {
                 case MSG_FRAME_REQ:
@@ -214,59 +236,9 @@ namespace dkmrtp {
                     else if (cb_.on_unhandled)
                         cb_.on_unhandled(h);
                     break;
-
-                case MSG_CMD_PARTICIPANT_CREATE:
-                    if (plen >= sizeof(CmdParticipantCreate) &&
-                        cb_.on_cmd_participant_create) {
-                        CmdParticipantCreate cmd{};
-                        memcpy(&cmd, payload, sizeof(cmd));
-                        cb_.on_cmd_participant_create(h, cmd);
-                    }
-                    break;
-                case MSG_CMD_PUBLISHER_CREATE:
-                    if (plen >= sizeof(CmdPublisherCreate) &&
-                        cb_.on_cmd_publisher_create) {
-                        CmdPublisherCreate cmd{};
-                        memcpy(&cmd, payload, sizeof(cmd));
-                        cb_.on_cmd_publisher_create(h, cmd);
-                    }
-                    break;
-                case MSG_CMD_SUBSCRIBER_CREATE:
-                    if (plen >= sizeof(CmdSubscriberCreate) &&
-                        cb_.on_cmd_subscriber_create) {
-                        CmdSubscriberCreate cmd{};
-                        memcpy(&cmd, payload, sizeof(cmd));
-                        cb_.on_cmd_subscriber_create(h, cmd);
-                    }
-                    break;
-                case MSG_CMD_PUBLISH_SAMPLE:
-                    if (plen >= sizeof(CmdPublishSample) &&
-                        cb_.on_cmd_publish_sample) {
-                        CmdPublishSample cmd{};
-                        memcpy(&cmd, payload, sizeof(cmd));
-                        const uint8_t *body =
-                            payload + sizeof(CmdPublishSample);
-                        cb_.on_cmd_publish_sample(h, cmd, body);
-                    }
-                    break;
-                case MSG_RSP_ACK:
-                    if (cb_.on_ack)
-                        cb_.on_ack(h);
-                    break;
-                case MSG_RSP_ERROR:
-                    if (plen >= sizeof(RspError) && cb_.on_error) {
-                        RspError e{};
-                        memcpy(&e, payload, sizeof(e));
-                        const char *msg =
-                            (plen > sizeof(RspError))
-                                ? (const char *)(payload + sizeof(RspError))
-                                : "";
-                        cb_.on_error(h, e, msg);
-                    }
-                    break;
-                case MSG_EVT_DATA:
-                    if (cb_.on_evt_data)
-                        cb_.on_evt_data(h, payload);
+                default:
+                    if (cb_.on_unhandled)
+                        cb_.on_unhandled(h);
                     break;
                 }
             }
