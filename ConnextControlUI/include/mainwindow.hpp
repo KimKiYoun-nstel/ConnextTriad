@@ -30,6 +30,8 @@ class MainWindow final : public QMainWindow {
     void onCreateReader();
     void onPublishSample();
     void onLogLevelChanged(int index);
+    void onCreatePublisher();
+    void onCreateSubscriber();
 
   private:
     void setupUi();
@@ -58,6 +60,10 @@ class MainWindow final : public QMainWindow {
     QComboBox *cbType_{nullptr};
     QTextEdit *tePayload_{nullptr};
     QTextEdit *teLog_{nullptr};
+    QLineEdit *lePubName_{nullptr};
+    QLineEdit *leSubName_{nullptr};
+    QPushButton *btnPublisher_{nullptr};
+    QPushButton *btnSubscriber_{nullptr};
 
     QPushButton *btnConn_{nullptr};
     QPushButton *btnPart_{nullptr};

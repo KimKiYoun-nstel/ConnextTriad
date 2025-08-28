@@ -46,8 +46,7 @@ namespace rtpdds {
 
                 if (op == "create" && kind == "participant") {
                     int domain = req["args"].value("domain", 0);
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
+                    std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
                     std::string lib = "", prof = "";
                     auto p = qos.find("::");
                     if (p != std::string::npos) {
@@ -58,31 +57,33 @@ namespace rtpdds {
                     if (ok)
                         rsp = {{"ok", true}};
                 } else if (op == "create" && kind == "writer") {
+                    int domain = req["args"].value("domain", 0);
+                    std::string pub = req["args"].value("publisher", "pub1");
                     std::string topic = target.value("topic", "");
                     std::string type = target.value("type", "StringMsg");
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
+                    std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
                     std::string lib = "", prof = "";
                     auto p = qos.find("::");
                     if (p != std::string::npos) {
                         lib = qos.substr(0, p);
                         prof = qos.substr(p + 2);
                     }
-                    ok = mgr_.create_writer(topic, type, lib, prof);
+                    ok = mgr_.create_writer(domain, pub, topic, type, lib, prof);
                     if (ok)
                         rsp = {{"ok", true}};
                 } else if (op == "create" && kind == "reader") {
+                    int domain = req["args"].value("domain", 0);
+                    std::string sub = req["args"].value("subscriber", "sub1");
                     std::string topic = target.value("topic", "");
                     std::string type = target.value("type", "StringMsg");
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
+                    std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
                     std::string lib = "", prof = "";
                     auto p = qos.find("::");
                     if (p != std::string::npos) {
                         lib = qos.substr(0, p);
                         prof = qos.substr(p + 2);
                     }
-                    ok = mgr_.create_reader(topic, type, lib, prof);
+                    ok = mgr_.create_reader(domain, sub, topic, type, lib, prof);
                     if (ok)
                         rsp = {{"ok", true}};
                 } else if (op == "write" && kind == "writer") {
