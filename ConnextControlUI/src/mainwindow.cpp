@@ -1,4 +1,4 @@
-﻿#include "mainwindow.hpp"
+#include "mainwindow.hpp"
 
 #include <QtWidgets>
 #include <nlohmann/json.hpp>  // 수신 CBOR → JSON pretty 로그에 사용
@@ -13,26 +13,52 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // IPC 콜백 설치(레거시 + 새 프레임)
     dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
 
-    // 레거시 경로(겸용 유지)
-    // 불필요한 콜백 제거됨. REQ/RSP/EVT만 남김.
-
     // 새 경로(REQ/RSP/EVT = CBOR 페이로드)
     cb.on_response = [this](const Header &h, const uint8_t *body, uint32_t len) {
         try {
             auto j = nlohmann::json::from_cbor(std::vector<uint8_t>(body, body + len));
-            appendLog(QString("[RSP] id=%1 json=%2").arg(h.corr_id).arg(QString::fromStdString(j.dump(2))));
-            statusBar()->showMessage(
-                QString("RSP id=%1 ok=%2").arg(h.corr_id).arg(j.value("ok", false) ? "true" : "false"), 2000);
+            QString logLine;
+            if (j.value("ok", false)) {
+                // 성공 응답: result/action 등 표시
+                if (j.contains("result")) {
+                    auto result = j["result"];
+                    QString action = QString::fromStdString(result.value("action", ""));
+                    logLine = QString("[RSP] id=%1 action=%2").arg(h.corr_id).arg(action);
+                    // 파라미터 정보 추가
+                    if (result.contains("domain"))
+                        logLine += QString(" domain=%1").arg(result["domain"].get<int>());
+                    if (result.contains("publisher"))
+                        logLine += QString(" publisher=%1").arg(QString::fromStdString(result["publisher"].get<std::string>()));
+                } else {
+                    logLine = QString("[RSP] id=%1 ok=true").arg(h.corr_id);
+                }
+            } else {
+                // 실패 응답: category/msg 등 표시
+                int category = j.value("category", -1);
+                QString msg = QString::fromStdString(j.value("msg", ""));
+                QString catStr = (category == 1) ? "[Resource]" : (category == 2) ? "[Logic]" : "[Unknown]";
+                logLine = QString("[RSP] id=%1 error=%2 %3").arg(h.corr_id).arg(catStr).arg(msg);
+            }
+            QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
+                                      Q_ARG(QString, logLine), Q_ARG(bool, false));
+            QMetaObject::invokeMethod(this->statusBar(), "showMessage", Qt::QueuedConnection,
+                                      Q_ARG(QString, logLine), Q_ARG(int, 2000));
         } catch (...) {
-            appendLog(QString("[RSP] id=%1 <CBOR parse error>").arg(h.corr_id));
+            QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
+                                      Q_ARG(QString, QString("[RSP] id=%1 <CBOR parse error>").arg(h.corr_id)),
+                                      Q_ARG(bool, false));
         }
     };
     cb.on_event = [this](const Header &, const uint8_t *body, uint32_t len) {
         try {
             auto j = nlohmann::json::from_cbor(std::vector<uint8_t>(body, body + len));
-            appendLog(QString("[EVT] %1").arg(QString::fromStdString(j.dump(2))));
+            QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
+                                      Q_ARG(QString, QString("[EVT] %1").arg(QString::fromStdString(j.dump(2)))),
+                                      Q_ARG(bool, false));
         } catch (...) {
-            appendLog("[EVT] <CBOR parse error>");
+            QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
+                                      Q_ARG(QString, QString("[EVT] <CBOR parse error>")),
+                                      Q_ARG(bool, false));
         }
     };
 

@@ -36,5 +36,13 @@
   bool init(int domain_id);
   ```
 
+## Documentation Language
+- All comments (including Doxygen), commit messages, and project documentation SHOULD be written in **Korean**.
+- Code identifiers (types, functions, enums, constants) and external API names MUST remain in **English**.
+- Example Doxygen should use Korean prose while keeping type and API symbols in English.
+
+## Log Message Language
+All log messages in source code MUST be written in **English**.
+
 ## No Duplication
 - Before adding APIs, search `include/` & `src/` for prior art; extend rather than copy.

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file ipc_adapter.cpp
  * ### 파일 설명(한글)
  * IpcAdapter 구현 파일.
@@ -53,9 +53,50 @@ namespace rtpdds {
                         lib = qos.substr(0, p);
                         prof = qos.substr(p + 2);
                     }
-                    ok = mgr_.create_participant(domain, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
+                    DdsResult res = mgr_.create_participant(domain, lib, prof);
+                    if (res.ok) {
+                        LOG_INF("IPC", "participant created: domain=%d qos=%s", domain, qos.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "participant created"}, {"domain", domain}}}};
+                    } else {
+                        LOG_ERR("IPC", "participant creation failed: domain=%d category=%d reason=%s", domain, (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
+                } else if (op == "create" && kind == "publisher") {
+                    int domain = req["args"].value("domain", 0);
+                    std::string pub = req["args"].value("publisher", "pub1");
+                    std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+                    std::string lib = "", prof = "";
+                    auto p = qos.find("::");
+                    if (p != std::string::npos) {
+                        lib = qos.substr(0, p);
+                        prof = qos.substr(p + 2);
+                    }
+                    DdsResult res = mgr_.create_publisher(domain, pub, lib, prof);
+                    if (res.ok) {
+                        LOG_INF("IPC", "publisher created: domain=%d pub=%s qos=%s", domain, pub.c_str(), qos.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "publisher created"}, {"domain", domain}, {"publisher", pub}}}};
+                    } else {
+                        LOG_ERR("IPC", "publisher creation failed: domain=%d pub=%s category=%d reason=%s", domain, pub.c_str(), (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
+                } else if (op == "create" && kind == "subscriber") {
+                    int domain = req["args"].value("domain", 0);
+                    std::string sub = req["args"].value("subscriber", "sub1");
+                    std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+                    std::string lib = "", prof = "";
+                    auto p = qos.find("::");
+                    if (p != std::string::npos) {
+                        lib = qos.substr(0, p);
+                        prof = qos.substr(p + 2);
+                    }
+                    DdsResult res = mgr_.create_subscriber(domain, sub, lib, prof);
+                    if (res.ok) {
+                        LOG_INF("IPC", "subscriber created: domain=%d sub=%s qos=%s", domain, sub.c_str(), qos.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "subscriber created"}, {"domain", domain}, {"subscriber", sub}}}};
+                    } else {
+                        LOG_ERR("IPC", "subscriber creation failed: domain=%d sub=%s category=%d reason=%s", domain, sub.c_str(), (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
                 } else if (op == "create" && kind == "writer") {
                     int domain = req["args"].value("domain", 0);
                     std::string pub = req["args"].value("publisher", "pub1");
@@ -68,9 +109,14 @@ namespace rtpdds {
                         lib = qos.substr(0, p);
                         prof = qos.substr(p + 2);
                     }
-                    ok = mgr_.create_writer(domain, pub, topic, type, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
+                    DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof);
+                    if (res.ok) {
+                        LOG_INF("IPC", "writer created: domain=%d pub=%s topic=%s type=%s", domain, pub.c_str(), topic.c_str(), type.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "writer created"}, {"domain", domain}, {"publisher", pub}, {"topic", topic}, {"type", type}}}};
+                    } else {
+                        LOG_ERR("IPC", "writer creation failed: domain=%d pub=%s topic=%s type=%s category=%d reason=%s", domain, pub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
                 } else if (op == "create" && kind == "reader") {
                     int domain = req["args"].value("domain", 0);
                     std::string sub = req["args"].value("subscriber", "sub1");
@@ -83,15 +129,25 @@ namespace rtpdds {
                         lib = qos.substr(0, p);
                         prof = qos.substr(p + 2);
                     }
-                    ok = mgr_.create_reader(domain, sub, topic, type, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
+                    DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof);
+                    if (res.ok) {
+                        LOG_INF("IPC", "reader created: domain=%d sub=%s topic=%s type=%s", domain, sub.c_str(), topic.c_str(), type.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "reader created"}, {"domain", domain}, {"subscriber", sub}, {"topic", topic}, {"type", type}}}};
+                    } else {
+                        LOG_ERR("IPC", "reader creation failed: domain=%d sub=%s topic=%s type=%s category=%d reason=%s", domain, sub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
                 } else if (op == "write" && kind == "writer") {
                     std::string topic = target.value("topic", "");
                     std::string text = req["data"].value("text", "");
-                    ok = mgr_.publish_text(topic, text);
-                    if (ok)
-                        rsp = {{"ok", true}};
+                    DdsResult res = mgr_.publish_text(topic, text);
+                    if (res.ok) {
+                        LOG_INF("IPC", "publish_text ok: topic=%s", topic.c_str());
+                        rsp = {{"ok", true}, {"result", {{"action", "publish ok"}, {"topic", topic}}}};
+                    } else {
+                        LOG_ERR("IPC", "publish_text failed: topic=%s category=%d reason=%s", topic.c_str(), (int)res.category, res.reason.c_str());
+                        rsp = {{"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason}};
+                    }
                 } else if (op == "hello") {
                     ok = true;
                     rsp = {{"ok", true},

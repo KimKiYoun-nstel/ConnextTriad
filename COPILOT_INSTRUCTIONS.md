@@ -1,5 +1,12 @@
 # Copilot Project Instructions
 
+## Language Policy (MUST)
+- Default language for all Copilot Chat responses and generated natural-language text is **Korean**.
+- Write all comments, docstrings, and human-facing documentation in **Korean**.
+- Keep code identifiers and third-party API names in **English** (e.g., type/function/class/enum names, DDS/NGVA terms).
+- User-facing strings (UI labels, log/error messages) should be **Korean** unless a spec requires otherwise.
+- When in doubt, prefer **Korean narrative + English code tokens**.
+
 ## Environment
 - OS: Windows
 - IDE: Visual Studio 2022
