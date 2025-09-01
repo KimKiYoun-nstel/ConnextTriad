@@ -1,5 +1,11 @@
 # Copilot Project Instructions
 
+## Cross-References (for Copilot context)
+- For high-level module boundaries and data flow, see `PROJECT_ARCHITECTURE.md`.
+- For detailed coding rules and examples, see `CODING_GUIDELINES.md`.
+- For NGVA/DDS compliance specifics and Connext usage constraints, see `DOMAIN_STANDARDS.md`.
+- For authoritative Topic/Type and Command specs, see `TOPICS_AND_COMMANDS.md`.
+
 ## Language Policy (MUST)
 - Default language for all Copilot Chat responses and generated natural-language text is **Korean**.
 - Write all comments, docstrings, and human-facing documentation in **Korean**.
@@ -46,13 +52,9 @@
 - DDS generated sources (`*.cxx`, `*Plugin.*`, `*Support.*`) are ignored and must not be modified or referenced directly.  
 - Always edit `.idl` files for schema changes, then regenerate code.
 
----
-## Cross-References (for Copilot context)
-- For high-level module boundaries and data flow, see `PROJECT_ARCHITECTURE.md`.
-- For detailed coding rules and examples, see `CODING_GUIDELINES.md`.
-- For NGVA/DDS compliance specifics and Connext usage constraints, see `DOMAIN_STANDARDS.md`.
-
 ## Copilot Context Hints
 - Prefer reading `generated/*.h` to infer data types; avoid referencing `generated/*.cxx`, `*Plugin.*`, `*Support.*`.
 - When proposing new features, search for similar functionality in `RtpDdsGateway/include/` and `DkmRtpIpc/include/` before generating new code.
 - Avoid running builds/tests unless explicitly requested.
+- Treat `TOPICS_AND_COMMANDS.md` as the single source of truth for topics/types and UI↔DDS commands; follow it when proposing code.
+
