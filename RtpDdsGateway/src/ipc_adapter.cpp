@@ -9,7 +9,6 @@
 #include "ipc_adapter.hpp"
 #include "dds_manager.hpp"
 #include "triad_log.hpp"
-#include "nlohmann/json.hpp"
 
 
 namespace rtpdds {

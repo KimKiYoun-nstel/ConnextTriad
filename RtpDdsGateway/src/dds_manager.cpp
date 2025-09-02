@@ -14,7 +14,6 @@
 
 #include "triad_log.hpp"
 
-
 namespace rtpdds
 {
 
@@ -23,6 +22,7 @@ DdsManager::DdsManager()
     // 초기 타입 등록: 기존 타입들 한 줄씩
     REGISTER_MESSAGE_TYPE(registry_, StringMsg);
     REGISTER_MESSAGE_TYPE(registry_, AlarmMsg);
+    REGISTER_MESSAGE_TYPE(registry_, P_Alarms_PSM_C_Actual_Alarm);
 }
 
 DdsManager::~DdsManager()
@@ -68,7 +68,7 @@ DdsManager::~DdsManager()
     readers_.clear();
 }
 
-DdsResult DdsManager::create_participant(int domain_id, const std::string& , const std::string& )
+DdsResult DdsManager::create_participant(int domain_id, const std::string&, const std::string&)
 {
     DDS_DomainParticipantQos pqos;
     DDSDomainParticipantFactory* factory = DDSDomainParticipantFactory::get_instance();
@@ -315,12 +315,14 @@ DdsResult DdsManager::publish_text(int domain_id, const std::string& pub_name, c
                      "Publish succeeded: domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
 }
 
-void DdsManager::set_on_sample(SampleHandler cb) {
+void DdsManager::set_on_sample(SampleHandler cb)
+{
     on_sample_ = std::move(cb);
 }
 
-void DdsManager::ReaderListener::on_data_available(DDSDataReader *reader) {
-    const std::string &type_name = owner.topic_to_type_[topic];
+void DdsManager::ReaderListener::on_data_available(DDSDataReader* reader)
+{
+    const std::string& type_name = owner.topic_to_type_[topic];
     auto it = owner.registry_.by_name.find(type_name);
     if (it == owner.registry_.by_name.end()) return;
     std::string disp = it->second.take_one_to_display(reader);
