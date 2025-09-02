@@ -19,10 +19,17 @@ namespace rtpdds
 
 DdsManager::DdsManager()
 {
+    triad::set_level(triad::Lvl::Debug);  // 로그 레벨을 Debug로 강제 설정
+
     // 초기 타입 등록: 기존 타입들 한 줄씩
     REGISTER_MESSAGE_TYPE(registry_, StringMsg);
     REGISTER_MESSAGE_TYPE(registry_, AlarmMsg);
     REGISTER_MESSAGE_TYPE(registry_, P_Alarms_PSM_C_Actual_Alarm);
+
+    // 타입 레지스트리 덤프 로그 추가
+    for (const auto& kv : registry_.by_name) {
+        LOG_DBG("DDS", "Registered type: %s", kv.first.c_str());
+    }
 }
 
 DdsManager::~DdsManager()
