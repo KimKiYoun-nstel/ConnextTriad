@@ -14,10 +14,9 @@
 #include <string>
 #include <unordered_map>
 
-#include "data_converter.hpp"
-#include "register_macro.hpp"
-#include "type_registry.hpp"
-#include "type_traits.hpp"
+#include <ndds/hpp/dds/dds.hpp>
+#include "dds_type_registry.hpp"
+
 
 namespace rtpdds
 {
@@ -52,31 +51,20 @@ class DdsManager
                            const std::string& text);
 
    public:
-    using SampleHandler =
-        std::function<void(const std::string& topic, const std::string& type_name, const std::string& display)>;
+    using SampleHandler = SampleCallback;
     void set_on_sample(SampleHandler cb);
 
    private:
-    // Reader용 Listener
-    struct ReaderListener : public DDSDataReaderListener {
-        DdsManager& owner;
-        std::string topic;
-        explicit ReaderListener(DdsManager& o, std::string t) : owner(o), topic(std::move(t)) {}
-        void on_data_available(DDSDataReader* reader) override;
-    };
+    std::unordered_map<int, std::shared_ptr<dds::domain::DomainParticipant> > participants_;
+    std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::pub::Publisher> > > publishers_;
+    std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::sub::Subscriber> > > subscribers_;
+    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IWriterHolder> > > > writers_;
+    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IReaderHolder> > > > readers_;
 
-    std::unordered_map<int, DDSDomainParticipant*> participants_;
-    std::unordered_map<int, std::unordered_map<std::string, DDSPublisher*> > publishers_;
-    std::unordered_map<int, std::unordered_map<std::string, DDSSubscriber*> > subscribers_;
-    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, DDSDataWriter*> > >
-        writers_;
-    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, DDSDataReader*> > >
-        readers_;
-
-    std::unordered_map<std::string, ReaderListener*> listeners_;
+    std::unordered_map<std::string, std::shared_ptr<void> > listeners_;
     SampleHandler on_sample_;
-    // 타입 레지스트리 및 topic->type 매핑
-    TypeRegistry registry_{};
+
     std::unordered_map<std::string, std::string> topic_to_type_{};
+    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<ITopicHolder>>>> topics_;
 };
 }  // namespace rtpdds

@@ -1,0 +1,159 @@
+C++17 std::any 버전 (권장)
+0) CMake: C++17 켜기
+# CMakeLists.txt (상단 근처)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+1) 공통 타입/인터페이스 교체
+include/dds_type_registry.hpp (핵심 인터페이스)
+// 추가
+#include <any>
+using AnyData = std::any;
+
+// 콜백: 샘플 개념을 유지 (DDS의 'sample')
+using SampleCallback =
+  std::function<void(const std::string& topic,
+                     const std::string& type_name,
+                     const AnyData& data)>;
+
+// --- Writer ---
+struct IWriterHolder {
+  virtual ~IWriterHolder() = default;
+  virtual void write_any(const AnyData& data) = 0;
+};
+
+template <typename T>
+struct WriterHolder : IWriterHolder {
+  std::shared_ptr<dds::pub::DataWriter<T>> writer;
+  explicit WriterHolder(std::shared_ptr<dds::pub::DataWriter<T>> w) : writer(std::move(w)) {}
+  void write_any(const AnyData& data) override {
+    try {
+      const T& v = std::any_cast<const T&>(data);
+      writer->write(v);
+    } catch (const std::bad_any_cast&) {
+      throw std::runtime_error("WriterHolder: bad_any_cast for type " + std::string(rti::topic::type_name<T>::get()));
+    }
+  }
+};
+
+// --- Topic ---
+struct ITopicHolder { virtual ~ITopicHolder() = default; };
+
+template <typename T>
+struct TopicHolder : ITopicHolder {
+  std::shared_ptr<dds::topic::Topic<T>> topic;
+  explicit TopicHolder(std::shared_ptr<dds::topic::Topic<T>> t) : topic(std::move(t)) {}
+};
+
+// --- Reader ---
+struct IReaderHolder {
+  virtual ~IReaderHolder() = default;
+  // Listener 유지: 콜백에 AnyData로 ‘샘플’을 넘긴다
+  virtual std::shared_ptr<void>
+  attach_forwarding_listener(const std::string& topic, SampleCallback cb) = 0;
+};
+
+template <typename T>
+struct ReaderHolder : IReaderHolder {
+  std::shared_ptr<dds::sub::DataReader<T>> reader;
+  explicit ReaderHolder(std::shared_ptr<dds::sub::DataReader<T>> r) : reader(std::move(r)) {}
+
+  struct ForwardingReaderListener : dds::sub::NoOpDataReaderListener<T> {
+    SampleCallback cb; std::string topic;
+    ForwardingReaderListener(SampleCallback c, std::string t)
+      : cb(std::move(c)), topic(std::move(t)) {}
+    void on_data_available(dds::sub::DataReader<T>& r) override {
+      for (auto s : r.take()) {
+        if (s.info().valid()) cb(topic, rti::topic::type_name<T>::get(), AnyData(s.data()));
+      }
+    }
+  };
+
+  std::shared_ptr<void>
+  attach_forwarding_listener(const std::string& topic, SampleCallback cb) override {
+    auto lis = std::make_shared<ForwardingReaderListener>(std::move(cb), topic);
+    reader->listener(lis.get(), dds::core::status::StatusMask::data_available());
+    return lis; // 매니저에서 shared_ptr<void>로 수명 보관
+  }
+};
+
+팩토리 시그니처(토픽 재사용은 이전 답변 5번대로 유지)
+using TopicFactory  = std::function<std::shared_ptr<ITopicHolder>(dds::domain::DomainParticipant&, const std::string&)>;
+using WriterFactory = std::function<std::shared_ptr<IWriterHolder>(dds::pub::Publisher&, ITopicHolder&)>;
+using ReaderFactory = std::function<std::shared_ptr<IReaderHolder>(dds::sub::Subscriber&, ITopicHolder&)>;
+
+register_dds_type<T>()의 WriterFactory 람다 교체
+writer_factories[type_name] =
+  [](dds::pub::Publisher& pub, ITopicHolder& th) {
+    auto* tt = dynamic_cast<TopicHolder<T>*>(&th);
+    if (!tt) throw std::runtime_error("WriterFactory: Topic type mismatch");
+    auto w = std::make_shared<dds::pub::DataWriter<T>>(pub, *tt->topic);
+    return std::make_shared<WriterHolder<T>>(w);
+  };
+
+2) 샘플 생성기(“실제 데이터 1건” 생성)
+include/sample_factory.hpp
+#pragma once
+#include <any>
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <ndds/hpp/dds.hpp>
+
+#include "StringMsg.hpp"
+#include "AlarmMsg.hpp"
+#include "Alarms_PSM.hpp" // C++11 코드젠: 네임스페이스 타입 포함
+
+using AnyData = std::any;
+using SampleFactory = std::function<AnyData(const std::string& payload)>;
+
+extern std::unordered_map<std::string, SampleFactory> sample_factories;
+void init_sample_factories();
+
+src/sample_factory.cpp
+#include "sample_factory.hpp"
+// 필요하면 JSON 파서 사용: #include <nlohmann/json.hpp>
+
+std::unordered_map<std::string, SampleFactory> sample_factories;
+
+void init_sample_factories() {
+  // StringMsg { string text; }
+  sample_factories["StringMsg"] = [](const std::string& s) -> AnyData {
+    StringMsg v; v.text(s);  // 혹은 v.text() = s; (코드젠 형태에 맞춰)
+    return v;                // any 내부에 값으로 들어감
+  };
+
+  // AlarmMsg { long level; string text; }
+  sample_factories["AlarmMsg"] = [](const std::string& js) -> AnyData {
+    AlarmMsg v; v.level(0); v.text(js);
+    // JSON 파싱 원하면 여기서 채워도 됨
+    return v;
+  };
+
+  // 네임스페이스 표기 중요!
+  sample_factories["P_Alarms_PSM::C_Actual_Alarm"] = [](const std::string& js) -> AnyData {
+    P_Alarms_PSM::C_Actual_Alarm v;
+    // TODO: 실제 필드 세팅
+    return v;
+  };
+}
+
+3) 매니저 결선부
+리더 생성 후 리스너 부착 (기존 Listener 유지)
+auto t_holder = topic_factories[type_name](*participants_[domain_id], topic);
+topics_[domain_id][sub_name][topic] = t_holder;
+
+auto r_holder = reader_factories[type_name](*subscribers_[domain_id][sub_name], *t_holder);
+readers_[domain_id][sub_name][topic] = r_holder;
+
+// on_sample_이 있다면 attach; shared_ptr<void>로 보관
+if (on_sample_) listeners_[topic] = r_holder->attach_forwarding_listener(topic, on_sample_);
+
+발행 경로: 타입 분기 없이 끝!
+// type_name은 토픽→타입 매핑에서 얻었다고 가정
+auto fit = sample_factories.find(type_name);
+if (fit == sample_factories.end()) return err("No factory for " + type_name);
+
+AnyData data = fit->second(payload);              // ‘샘플’ 생성
+writers_[domain_id][pub_name][topic]->write_any(data);  // 다운캐스팅/분기 없음

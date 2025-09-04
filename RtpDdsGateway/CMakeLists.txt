@@ -8,7 +8,7 @@ file(MAKE_DIRECTORY ${GEN_DIR})
 
 # rtiddsgen path & language (classic)
 set(RTIDDSGEN "$ENV{NDDSHOME}/bin/rtiddsgen.bat")
-set(RTIDDSGEN_LANG "C++98" CACHE STRING "rtiddsgen language for Classic C++ (C++ or C++03)")
+set(RTIDDSGEN_LANG "C++11" CACHE STRING "rtiddsgen language for Modern C++ (C++11)")
 
 # 생성될 파일들을 저장할 리스트
 set(GENERATED_SOURCES "")
@@ -18,14 +18,12 @@ foreach(IDL_FILE ${IDL_FILES})
     get_filename_component(IDL_NAME ${IDL_FILE} NAME_WE)
     
     # 현재 IDL 파일에서 생성될 파일들
-    set(CURRENT_GENERATED_FILES
-        ${GEN_DIR}/${IDL_NAME}.h
-        ${GEN_DIR}/${IDL_NAME}.cxx
-        ${GEN_DIR}/${IDL_NAME}Plugin.h
-        ${GEN_DIR}/${IDL_NAME}Plugin.cxx
-        ${GEN_DIR}/${IDL_NAME}Support.h
-        ${GEN_DIR}/${IDL_NAME}Support.cxx
-    )
+  set(CURRENT_GENERATED_FILES
+    ${GEN_DIR}/${IDL_NAME}.hpp
+    ${GEN_DIR}/${IDL_NAME}.cxx
+    ${GEN_DIR}/${IDL_NAME}Plugin.hpp
+    ${GEN_DIR}/${IDL_NAME}Plugin.cxx
+  )
     
     # rtiddsgen 명령어 실행
     add_custom_command(
@@ -43,21 +41,17 @@ foreach(IDL_FILE ${IDL_FILES})
     list(APPEND GENERATED_SOURCES 
         ${GEN_DIR}/${IDL_NAME}.cxx
         ${GEN_DIR}/${IDL_NAME}Plugin.cxx
-        ${GEN_DIR}/${IDL_NAME}Support.cxx
     )
 endforeach()
 
 # 생성된 소스 파일들 출력 (디버깅용)
 message(STATUS "Generated DDS sources: ${GENERATED_SOURCES}")
 
+file(GLOB SRC_FILES "src/*.cpp")
 add_library(RtpDdsCore STATIC
-  src/gateway.cpp
-  src/dds_manager.cpp
-  src/ipc_adapter.cpp
-  include/type_traits.hpp
-  include/data_converter.hpp
-  include/type_registry.hpp
-  include/register_macro.hpp
+  ${SRC_FILES}
+  include/dds_type_registry.hpp
+  include/sample_factory.hpp
   ${GENERATED_SOURCES}
 )
 
@@ -73,8 +67,8 @@ target_link_libraries(RtpDdsCore PUBLIC DkmRtpIpc)
 target_compile_definitions(RtpDdsCore PUBLIC $<$<BOOL:${USE_CONNEXT}>:USE_CONNEXT>)
 
 if(USE_CONNEXT)
-  # RTI headers
-  target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds")
+  # RTI headers (Modern C++11)
+  target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp")
 
 
   # --- Auto-detect RTI lib dir (prefer x64Win64VS2017) ---
@@ -103,21 +97,18 @@ if(USE_CONNEXT)
 
   target_compile_definitions(RtpDdsCore PUBLIC NDDS_DLL_VARIABLE)
 
-  # --- Debug/Release에 맞는 라이브러리 선택 ---
-  # 디버그 lib가 없을 수도 있으니 존재 여부 먼저 확인
-  if(EXISTS "${RTI_LIB_DIR}/nddscppd.lib")
-    set(RTI_LIBS_DEBUG nddscppd nddscd nddscored)
+  # --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
+  if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
+    set(RTI_LIBS_DEBUG nddscpp2d nddscd nddscored)
   else()
-    # 설치에 디버그 lib가 없다면 릴리스로 대체 (경고)
-    message(WARNING "RTI debug libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
-    set(RTI_LIBS_DEBUG nddscpp nddsc nddscore)
+    message(WARNING "RTI debug C++11 libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
+    set(RTI_LIBS_DEBUG nddscpp2 nddsc nddscore)
   endif()
 
-
-  # Classic C++ API libs
+  # Modern C++11 API libs
   target_link_libraries(RtpDdsCore PUBLIC
     $<$<CONFIG:Debug>:${RTI_LIBS_DEBUG}>
-    $<$<NOT:$<CONFIG:Debug>>:nddscpp;nddsc;nddscore>
+    $<$<NOT:$<CONFIG:Debug>>:nddscpp2;nddsc;nddscore>
   )
 endif()
 

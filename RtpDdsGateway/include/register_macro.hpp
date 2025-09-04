@@ -1,5 +1,5 @@
 #pragma once
-#ifdef USE_CONNEXT
+#if 0 
 #include "type_traits.hpp"
 #include "type_registry.hpp"
 #include "data_converter.hpp"
@@ -52,6 +52,17 @@ template <typename T> inline TypeRegistry::Entry make_entry() {
             std::string disp = DataConverter<T>::to_display(data[0]);
             narrow->return_loan(data, info);
             return disp;
+        },
+        // 확장: 리스너 등록 함수 추가
+        [](void* r, void* l) {
+            auto* reader = (DDSDataReader*)r;
+            using DR = typename TypeTraits<T>::DataReader;
+            auto* narrow = DR::narrow(reader);
+            if (!narrow) return false;
+            // Modern C++11 API에서는 listener 등록 방식에 맞게 수정 필요
+            // 예시: narrow->set_listener((dds::sub::DataReaderListener<T>*)l, dds::core::status::StatusMask::data_available());
+            // 실제 구현은 Modern API에 맞게 변경
+            return true;
         }
     };
 }

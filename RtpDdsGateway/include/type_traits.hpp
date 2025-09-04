@@ -1,5 +1,5 @@
 #pragma once
-
+#if 0
 #include <ndds/ndds_cpp.h>
 
 #include "AlarmMsgSupport.h"
@@ -60,3 +60,4 @@ struct TypeTraits<P_Alarms_PSM_C_Actual_Alarm> {
 };
 
 }  // namespace rtpdds
+#endif

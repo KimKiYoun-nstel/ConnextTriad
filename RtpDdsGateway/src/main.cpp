@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file main.cpp
  * ### 파일 설명(한글)
  * RtpDdsGateway 엔트리 포인트. 콘솔 인자를 파싱하여 GatewayApp을 구동.
@@ -9,6 +9,8 @@
 
 #include <iostream>
 
+#define _RTPDDS_DEBUG
+
 int main(int argc, char **argv) {
     using namespace rtpdds;
     GatewayApp app;
@@ -17,7 +19,7 @@ int main(int argc, char **argv) {
     uint16_t port =
         (argc > 3) ? static_cast<uint16_t>(std::stoi(argv[3])) : 25000;
 
-#ifdef _DEBUG
+#ifdef _RTPDDS_DEBUG
     triad::set_level(triad::Lvl::Debug);
 #else
     triad::set_level(triad::Lvl::Info);

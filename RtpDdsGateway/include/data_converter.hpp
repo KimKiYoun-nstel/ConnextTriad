@@ -1,4 +1,5 @@
 #pragma once
+#if 0
 #include <string>
 
 #include "dds_util.hpp"
@@ -120,3 +121,4 @@ struct DataConverter<P_Alarms_PSM_C_Actual_Alarm> {
 };
 
 }  // namespace rtpdds
+#endif
