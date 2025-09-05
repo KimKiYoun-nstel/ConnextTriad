@@ -1,10 +1,15 @@
+#pragma once
 /**
  * @file dds_manager.hpp
- * ### 파일 설명(한글)
- * DDS 엔티티(Participant/Publisher/Subscriber/Topic/Writer/Reader) 생성 및 관리.
- * * UI(IPC)로부터 명령을 받아 DDS 동작을 수행하고, 필요시 수신 샘플을 콜백으로 올려준다.
-
-
+ * @brief DDS 엔티티(Participant/Publisher/Subscriber/Topic/Writer/Reader) 생성 및 수명/소유권 관리 핵심 매니저.
+ *
+ * UI(IPC)로부터 명령을 받아 DDS 동작을 수행하고, 필요시 수신 샘플을 콜백으로 올려줍니다.
+ *
+ * 연관 파일:
+ *   - dds_type_registry.hpp (엔티티 동적 생성/타입 안전성)
+ *   - sample_factory.hpp (샘플 변환/생성)
+ *   - ipc_adapter.hpp (명령 변환/콜백)
+ *   - gateway.hpp (애플리케이션 엔트리)
  */
 #pragma once
 #include <algorithm>
@@ -32,40 +37,95 @@ struct DdsResult {
     }
 };
 /** @brief DDS 구성의 수명과 소유권을 관리하는 핵심 매니저 클래스 */
-class DdsManager
-{
-   public:
+/**
+ * @class DdsManager
+ * @brief DDS 구성의 수명과 소유권을 관리하는 핵심 매니저 클래스
+ *
+ * 도메인/토픽별로 participant, publisher, subscriber, writer, reader를 안전하게 관리하며,
+ * UI/IPC 명령을 받아 실제 DDS 동작을 수행하고, 샘플 수신 시 콜백을 통해 상위로 전달합니다.
+ */
+class DdsManager {
+public:
+    /** 생성자: 내부 레지스트리/유틸리티 초기화 */
     DdsManager();
+    /** 소멸자: 스마트 포인터 기반 자원 해제 */
     ~DdsManager();
-    // N개 관리 구조: 도메인ID별 participant, 이름별 pub/sub, topic별 writer/reader
+
+    /**
+     * @brief 도메인ID별 participant 생성
+     * @param domain_id 도메인 ID
+     * @param qos_lib   QoS 라이브러리명
+     * @param qos_profile QoS 프로파일명
+     * @return 성공/실패 및 사유
+     */
     DdsResult create_participant(int domain_id, const std::string& qos_lib, const std::string& qos_profile);
+
+    /**
+     * @brief 도메인/이름별 publisher 생성
+     */
     DdsResult create_publisher(int domain_id, const std::string& pub_name, const std::string& qos_lib,
                                const std::string& qos_profile);
+
+    /**
+     * @brief 도메인/이름별 subscriber 생성
+     */
     DdsResult create_subscriber(int domain_id, const std::string& sub_name, const std::string& qos_lib,
                                 const std::string& qos_profile);
+
+    /**
+     * @brief 도메인/이름/토픽/타입별 writer 생성
+     */
     DdsResult create_writer(int domain_id, const std::string& pub_name, const std::string& topic,
                             const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile);
+
+    /**
+     * @brief 도메인/이름/토픽/타입별 reader 생성
+     */
     DdsResult create_reader(int domain_id, const std::string& sub_name, const std::string& topic,
                             const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile);
+
+    /**
+     * @brief 토픽에 텍스트 샘플 publish (기본 도메인/퍼블리셔)
+     */
     DdsResult publish_text(const std::string& topic, const std::string& text);
+
+    /**
+     * @brief 도메인/퍼블리셔/토픽별로 텍스트 샘플 publish
+     */
     DdsResult publish_text(int domain_id, const std::string& pub_name, const std::string& topic,
                            const std::string& text);
 
-   public:
+    /**
+     * @brief 샘플 수신 콜백 핸들러 타입
+     */
     using SampleHandler = SampleCallback;
+
+    /**
+     * @brief 샘플 수신 시 호출될 콜백 등록
+     * @param cb 콜백 함수
+     */
     void set_on_sample(SampleHandler cb);
 
-   private:
+private:
+    // 도메인ID별 participant
     std::unordered_map<int, std::shared_ptr<dds::domain::DomainParticipant> > participants_;
+    // 도메인/이름별 publisher
     std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::pub::Publisher> > > publishers_;
+    // 도메인/이름별 subscriber
     std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::sub::Subscriber> > > subscribers_;
+    // 도메인/이름/토픽별 writer
     std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IWriterHolder> > > > writers_;
+    // 도메인/이름/토픽별 reader
     std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IReaderHolder> > > > readers_;
 
+    // 토픽별 리스너(콜백)
     std::unordered_map<std::string, std::shared_ptr<void> > listeners_;
+    // 샘플 수신 콜백
     SampleHandler on_sample_;
 
+    // 토픽명 → 타입명 매핑
     std::unordered_map<std::string, std::string> topic_to_type_{};
+    // 도메인/이름/토픽별 topic holder
     std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<ITopicHolder>>>> topics_;
 };
 }  // namespace rtpdds

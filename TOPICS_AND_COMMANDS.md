@@ -11,6 +11,7 @@
 | -------------- | --------- | --------------------- | --------- | ------ | --------- | ---------------------------- | ---------- | ------------------------ | ------------ |
 | `<TBD_Alarm>`  | AlarmMsg  | generated/AlarmMsg.h  | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | `id?`      | DataConverter<AlarmMsg>  | `alarm`      |
 | `<TBD_String>` | StringMsg | generated/StringMsg.h | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | —          | DataConverter<StringMsg> | `text`       |
+| P_Alarms_PSM::C_Actual_Alarm | P_Alarms_PSM::C_Actual_Alarm | generated/Alarms_PSM.h | Pub/Sub | 0 | default | TriadQosLib::DefaultReliable | 복합키(see IDL) | DataConverter<P_Alarms_PSM::C_Actual_Alarm> | actual_alarm |
 
 > 규칙
 >
@@ -27,53 +28,67 @@
 
 ---
 
-## 2. UI ↔ DDS 명령 카탈로그 (Spec)
+## 2. UI ↔ Gateway 명령/메시지 규격 (Single Source of Truth)
 
-### 2.1 공통 스키마
+### 2.1 공통 Envelope 구조 (REQ/RESP/EVT)
 
-* **Request**
+* `op`: string (예: "create", "write" 등, 수행할 동작)
+* `target`: object (대상 리소스 정보)
+  * `kind`: string (예: "participant", "publisher", "subscriber", "writer", "reader" 등)
+  * `topic`: string (writer/reader 생성/쓰기 시 필수)
+  * `type`: string (writer/reader 생성 시 필수)
+* `args`: object (동작별 파라미터)
+  * `domain`: int (도메인 ID)
+  * `publisher`: string (publisher 이름)
+  * `subscriber`: string (subscriber 이름)
+  * `qos`: string (예: "TriadQosLib::DefaultReliable")
+* `data`: object (write 시 payload, 예: { "text": "..." })
+* `corr_id`: int (요청-응답 매칭용, 옵션)
+
+#### Response/ACK 예시
 
 ```json
 {
-  "op": "string",
-  "target": { "kind": "string" },
-  "args": { },
-  "corr_id": 0
+  "ok": true,
+  "result": { "action": "writer created", ... },
+  "corr_id": 1001
 }
 ```
 
-* **Response**
+#### Error 예시
 
 ```json
 {
-  "ack": true,
-  "code": 0,
-  "msg": "",
-  "data": {},
-  "corr_id": 0
+  "ok": false,
+  "err": 4,
+  "msg": "Missing topic or type tag",
+  "corr_id": 1001
 }
 ```
 
-* **Error codes**
-  \| code | 의미                |
-  \|-----:|---------------------|
-  \| 0    | OK                  |
-  \| 400  | BadArgs(인자 오류)  |
-  \| 404  | NotFound            |
-  \| 409  | Exists              |
-  \| 501  | NotImplemented      |
-  \| 503  | DdsError            |
+#### Error codes
+
+| code | 의미                |
+|-----:|---------------------|
+| 0    | OK                  |
+| 4    | Logic/Validation    |
+| 6    | MissingTag          |
+| 400  | BadArgs(인자 오류)  |
+| 404  | NotFound            |
+| 409  | Exists              |
+| 501  | NotImplemented      |
+| 503  | DdsError            |
 
 ### 2.2 지원 op / target.kind
 
-* `create`: `participant|publisher|subscriber|topic|writer|reader`
-* `destroy`: `participant|publisher|subscriber|topic|writer|reader`
+* `create`: `participant` | `publisher` | `subscriber` | `writer` | `reader`
+* `destroy`: `participant` | `publisher` | `subscriber` | `writer` | `reader`
 * `write`:   `writer`
 * `subscribe` / `unsubscribe`: `reader`
 
-### 2.3 예시
+### 2.3 주요 메시지 예시
 
-**1) Participant 생성**
+#### (1) Participant 생성
 
 ```json
 {
@@ -84,52 +99,45 @@
 }
 ```
 
-**2) Topic/Writer/Reader 생성**
+#### (2) Publisher 생성
 
 ```json
 {
   "op": "create",
-  "target": { "kind": "topic", "name": "<TBD_Alarm>", "type": "AlarmMsg" },
-  "args": { "domain": 0, "qos": "TriadQosLib::DefaultReliable" },
-  "corr_id": 1004
+  "target": { "kind": "publisher" },
+  "args": { "domain": 0, "publisher": "pub1", "qos": "TriadQosLib::DefaultReliable" },
+  "corr_id": 1002
 }
 ```
+
+#### (3) Writer 생성
 
 ```json
 {
   "op": "create",
-  "target": { "kind": "writer", "topic": "<TBD_Alarm>", "type": "AlarmMsg" },
-  "args": { "domain": 0 },
-  "corr_id": 1005
+  "target": { "kind": "writer", "topic": "MyTopic", "type": "StringMsg" },
+  "args": { "domain": 0, "publisher": "pub1", "qos": "TriadQosLib::DefaultReliable" },
+  "corr_id": 1003
 }
 ```
 
-```json
-{
-  "op": "create",
-  "target": { "kind": "reader", "topic": "<TBD_Alarm>", "type": "AlarmMsg" },
-  "args": { "domain": 0 },
-  "corr_id": 1006
-}
-```
-
-**3) Publish(write)**
+#### (4) 데이터 쓰기 (write)
 
 ```json
 {
   "op": "write",
-  "target": { "kind": "writer", "topic": "<TBD_String>", "type": "StringMsg" },
-  "args": { "domain": 0, "payload": { "text": "hello" } },
+  "target": { "kind": "writer", "topic": "MyTopic", "type": "StringMsg" },
+  "data": { "text": "Hello, world!" },
   "corr_id": 2001
 }
 ```
 
-**4) Subscribe/Unsubscribe**
+#### (5) Subscribe/Unsubscribe
 
 ```json
 {
   "op": "subscribe",
-  "target": { "kind": "reader", "topic": "<TBD_Alarm>", "type": "AlarmMsg" },
+  "target": { "kind": "reader", "topic": "MyTopic", "type": "StringMsg" },
   "args": { "domain": 0 },
   "corr_id": 3001
 }
@@ -138,11 +146,28 @@
 ```json
 {
   "op": "unsubscribe",
-  "target": { "kind": "reader", "topic": "<TBD_Alarm>", "type": "AlarmMsg" },
+  "target": { "kind": "reader", "topic": "MyTopic", "type": "StringMsg" },
   "args": { "domain": 0 },
   "corr_id": 3002
 }
 ```
+
+### 2.4 필수/옵션 Tag 정리
+
+* `op`: 항상 필수
+* `target.kind`: 항상 필수
+* `target.topic/type`: writer/reader 생성/쓰기 시 필수
+* `args.domain`: 대부분의 생성 요청에 필수
+* `args.publisher/subscriber`: publisher/subscriber 생성 시 필수
+* `args.qos`: 옵션(기본값 있음)
+* `data`: write 시 필수
+* `corr_id`: 권장(요청-응답 매칭)
+
+### 2.5 기타 참고사항
+
+- 모든 메시지는 CBOR로 직렬화되어 IPC로 송수신, gateway 내부에서는 nlohmann::json으로 파싱
+* 오류 응답 시: `{ "ok": false, "err": <code>, "msg": "<reason>" }` 형태로 반환
+* 실제 payload 구조(예: AlarmMsg 등)는 각 topic/type에 따라 별도 정의됨
 
 ---
 
@@ -183,6 +208,26 @@
   "type": "StringMsg",
   "domain": 0,
   "data": { "text": "hello" },
+  "ts": "2025-08-29T12:00:00Z"
+}
+```
+
+* `P_Alarms_PSM::C_Actual_Alarm` 예시 (신규 topic type)
+
+```json
+{
+  "evt": "data",
+  "topic": "P_Alarms_PSM::C_Actual_Alarm",
+  "type": "P_Alarms_PSM::C_Actual_Alarm",
+  "domain": 0,
+  "data": {
+    "A_sourceID": { "id": "SRC001" },
+    "A_timeOfDataGeneration": { "sec": 1693900000, "nanosec": 123456789 },
+    "A_dateTimeRaised": { "sec": 1693900000, "nanosec": 123456789 },
+    "A_raisingCondition_sourceID": { "id": "COND01" },
+    "A_alarmCategory_sourceID": { "id": "CAT01" },
+    "A_alarmText": "Alarm text..."
+  },
   "ts": "2025-08-29T12:00:00Z"
 }
 ```

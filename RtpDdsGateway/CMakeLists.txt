@@ -23,6 +23,8 @@ foreach(IDL_FILE ${IDL_FILES})
     ${GEN_DIR}/${IDL_NAME}.cxx
     ${GEN_DIR}/${IDL_NAME}Plugin.hpp
     ${GEN_DIR}/${IDL_NAME}Plugin.cxx
+    ${GEN_DIR}/${IDL_NAME}Support.hpp
+    ${GEN_DIR}/${IDL_NAME}Support.cxx
   )
     
     # rtiddsgen 명령어 실행
@@ -50,8 +52,6 @@ message(STATUS "Generated DDS sources: ${GENERATED_SOURCES}")
 file(GLOB SRC_FILES "src/*.cpp")
 add_library(RtpDdsCore STATIC
   ${SRC_FILES}
-  include/dds_type_registry.hpp
-  include/sample_factory.hpp
   ${GENERATED_SOURCES}
 )
 

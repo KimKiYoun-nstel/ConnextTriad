@@ -114,7 +114,7 @@ void MainWindow::setupUi()
     leTopic_ = new QLineEdit("HelloTopic");
     cbType_ = new QComboBox();
     cbType_->setEditable(true);
-    cbType_->addItems({"StringMsg", "AlarmMsg", "P_Alarms_PSM_C_Actual_Alarm"});
+    cbType_->addItems({"StringMsg", "AlarmMsg", "P_Alarms_PSM::C_Actual_Alarm"});
     lePubName_ = new QLineEdit("pub1");
     leSubName_ = new QLineEdit("sub1");
     tePayload_ = new QTextEdit("Hello from UI");
@@ -174,7 +174,7 @@ void MainWindow::setupUi()
     connect(btnPub_, &QPushButton::clicked, this, &MainWindow::onPublishSample);
     connect(cbLogLevel_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onLogLevelChanged);
     connect(cbType_, &QComboBox::currentTextChanged, this, [this](const QString& type) {
-        if (type == "P_Alarms_PSM_C_Actual_Alarm") {
+        if (type == "P_Alarms_PSM::C_Actual_Alarm") {
             ActualAlarmDialog dlg(this);
             if (dlg.exec() == QDialog::Accepted) {
                 QJsonObject obj = dlg.toJson();
@@ -412,8 +412,8 @@ void MainWindow::showActualAlarmDialogAndPublish() {
         tePayload_->setPlainText(jsonStr);
 
         // Publish 로직 직접 호출
-        const std::string topic = "P_Alarms_PSM_C_Actual_Alarm";
-        const std::string type  = "P_Alarms_PSM_C_Actual_Alarm";
+        const std::string topic = "P_Alarms_PSM::C_Actual_Alarm";
+        const std::string type  = "P_Alarms_PSM::C_Actual_Alarm";
         const std::string text  = jsonStr.toStdString();
 
         triad::rpc::RpcBuilder rb;

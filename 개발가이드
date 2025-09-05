@@ -1,159 +1,250 @@
-C++17 std::any 버전 (권장)
-0) CMake: C++17 켜기
-# CMakeLists.txt (상단 근처)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ㅇ좋아, 이 변환기(샘플 공장)를 “앞으로 추가될 모든 IDL 타입”까지 확장 가능한 구조로 만들려면 기준을 딱 잡아야 해. 아래 로드맵대로 손보면, 스키마 일관성·라운드트립 보장·타입 안정성·확장성 네 마리 토끼를 한꺼번에 잡을 수 있어.
 
-1) 공통 타입/인터페이스 교체
-include/dds_type_registry.hpp (핵심 인터페이스)
-// 추가
-#include <any>
-using AnyData = std::any;
+# 0) 목표 정리
 
-// 콜백: 샘플 개념을 유지 (DDS의 'sample')
-using SampleCallback =
-  std::function<void(const std::string& topic,
-                     const std::string& type_name,
-                     const AnyData& data)>;
+* **단일 JSON 스키마**로 통일(중첩형 권장: `sourceId{...}`, `dateTimeRaised{sec,nsec}`)
+* **IDL↔JSON 라운드트립 동등성** 확보
+* **열거형은 문자열**로 외부 노출(내부는 enum)
+* **문자열 bound는 한 곳에서 관리**하고 변환시 강제
+* **Backward-compat 허용**(이전 JSON도 읽되, 쓰기는 새 스키마만)
 
-// --- Writer ---
-struct IWriterHolder {
-  virtual ~IWriterHolder() = default;
-  virtual void write_any(const AnyData& data) = 0;
+아래 수정안은 네 소스에 바로 반영 가능한 형태로 썼다.
+
+---
+
+# 1) JSON 스키마를 단일화 (to\_json 쪽 수정)
+
+현재 to\_json은 `resourceId/instanceId`와 시간 필드를 **평탄화**해서 내보내고(from\_json은 **중첩**을 기대) 있어서 라운드트립이 깨져. to\_json도 **중첩형으로 통일**하자.
+근거: 평탄화 키 사용부, 중첩 기대부.
+
+```cpp
+// before (평탄화)
+// j["resourceId"] = v.A_sourceID().A_resourceId();
+// j["instanceId"] = v.A_sourceID().A_instanceId();
+// j["dateTimeRaised_sec"] = v.A_dateTimeRaised().A_second();
+// j["dateTimeRaised_nsec"] = v.A_dateTimeRaised().A_nanoseconds();
+// j["timeOfDataGeneration_sec"] = v.A_timeOfDataGeneration().A_second();
+// j["timeOfDataGeneration_nsec"] = v.A_timeOfDataGeneration().A_nanoseconds();
+
+// after (중첩형으로 통일)
+nlohmann::json j;
+j["sourceId"] = {
+  {"resourceId", v.A_sourceID().A_resourceId()},
+  {"instanceId", v.A_sourceID().A_instanceId()}
 };
+j["dateTimeRaised"] = {
+  {"sec",  v.A_dateTimeRaised().A_second()},
+  {"nsec", v.A_dateTimeRaised().A_nanoseconds()}
+};
+j["timeOfDataGeneration"] = {
+  {"sec",  v.A_timeOfDataGeneration().A_second()},
+  {"nsec", v.A_timeOfDataGeneration().A_nanoseconds()}
+};
+```
 
-template <typename T>
-struct WriterHolder : IWriterHolder {
-  std::shared_ptr<dds::pub::DataWriter<T>> writer;
-  explicit WriterHolder(std::shared_ptr<dds::pub::DataWriter<T>> w) : writer(std::move(w)) {}
-  void write_any(const AnyData& data) override {
-    try {
-      const T& v = std::any_cast<const T&>(data);
-      writer->write(v);
-    } catch (const std::bad_any_cast&) {
-      throw std::runtime_error("WriterHolder: bad_any_cast for type " + std::string(rti::topic::type_name<T>::get()));
-    }
+---
+
+# 2) enum은 문자열로 (가독성/호환성↑)
+
+지금 from\_json이 `alarmState`를 정수로 캐스팅하고 있어(가독성↓). 문자열 ↔ enum 매핑 헬퍼를 두자.
+
+```cpp
+// enum <-> string 매핑
+inline const char* to_string(P_Alarms_PSM::T_Actual_Alarm_StateType e) {
+  switch(e){
+    case P_Alarms_PSM::T_Actual_Alarm_StateType::Unacknowledged: return "UNACK";
+    case P_Alarms_PSM::T_Actual_Alarm_StateType::Acknowledged:   return "ACK";
+    case P_Alarms_PSM::T_Actual_Alarm_StateType::Resolved:       return "RESOLVED";
+    case P_Alarms_PSM::T_Actual_Alarm_StateType::Destroyed:      return "DESTROYED";
+    case P_Alarms_PSM::T_Actual_Alarm_StateType::Cleared:        return "CLEARED";
+    default: return "UNKNOWN";
   }
-};
-
-// --- Topic ---
-struct ITopicHolder { virtual ~ITopicHolder() = default; };
-
-template <typename T>
-struct TopicHolder : ITopicHolder {
-  std::shared_ptr<dds::topic::Topic<T>> topic;
-  explicit TopicHolder(std::shared_ptr<dds::topic::Topic<T>> t) : topic(std::move(t)) {}
-};
-
-// --- Reader ---
-struct IReaderHolder {
-  virtual ~IReaderHolder() = default;
-  // Listener 유지: 콜백에 AnyData로 ‘샘플’을 넘긴다
-  virtual std::shared_ptr<void>
-  attach_forwarding_listener(const std::string& topic, SampleCallback cb) = 0;
-};
-
-template <typename T>
-struct ReaderHolder : IReaderHolder {
-  std::shared_ptr<dds::sub::DataReader<T>> reader;
-  explicit ReaderHolder(std::shared_ptr<dds::sub::DataReader<T>> r) : reader(std::move(r)) {}
-
-  struct ForwardingReaderListener : dds::sub::NoOpDataReaderListener<T> {
-    SampleCallback cb; std::string topic;
-    ForwardingReaderListener(SampleCallback c, std::string t)
-      : cb(std::move(c)), topic(std::move(t)) {}
-    void on_data_available(dds::sub::DataReader<T>& r) override {
-      for (auto s : r.take()) {
-        if (s.info().valid()) cb(topic, rti::topic::type_name<T>::get(), AnyData(s.data()));
-      }
-    }
-  };
-
-  std::shared_ptr<void>
-  attach_forwarding_listener(const std::string& topic, SampleCallback cb) override {
-    auto lis = std::make_shared<ForwardingReaderListener>(std::move(cb), topic);
-    reader->listener(lis.get(), dds::core::status::StatusMask::data_available());
-    return lis; // 매니저에서 shared_ptr<void>로 수명 보관
-  }
-};
-
-팩토리 시그니처(토픽 재사용은 이전 답변 5번대로 유지)
-using TopicFactory  = std::function<std::shared_ptr<ITopicHolder>(dds::domain::DomainParticipant&, const std::string&)>;
-using WriterFactory = std::function<std::shared_ptr<IWriterHolder>(dds::pub::Publisher&, ITopicHolder&)>;
-using ReaderFactory = std::function<std::shared_ptr<IReaderHolder>(dds::sub::Subscriber&, ITopicHolder&)>;
-
-register_dds_type<T>()의 WriterFactory 람다 교체
-writer_factories[type_name] =
-  [](dds::pub::Publisher& pub, ITopicHolder& th) {
-    auto* tt = dynamic_cast<TopicHolder<T>*>(&th);
-    if (!tt) throw std::runtime_error("WriterFactory: Topic type mismatch");
-    auto w = std::make_shared<dds::pub::DataWriter<T>>(pub, *tt->topic);
-    return std::make_shared<WriterHolder<T>>(w);
-  };
-
-2) 샘플 생성기(“실제 데이터 1건” 생성)
-include/sample_factory.hpp
-#pragma once
-#include <any>
-#include <functional>
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <ndds/hpp/dds.hpp>
-
-#include "StringMsg.hpp"
-#include "AlarmMsg.hpp"
-#include "Alarms_PSM.hpp" // C++11 코드젠: 네임스페이스 타입 포함
-
-using AnyData = std::any;
-using SampleFactory = std::function<AnyData(const std::string& payload)>;
-
-extern std::unordered_map<std::string, SampleFactory> sample_factories;
-void init_sample_factories();
-
-src/sample_factory.cpp
-#include "sample_factory.hpp"
-// 필요하면 JSON 파서 사용: #include <nlohmann/json.hpp>
-
-std::unordered_map<std::string, SampleFactory> sample_factories;
-
-void init_sample_factories() {
-  // StringMsg { string text; }
-  sample_factories["StringMsg"] = [](const std::string& s) -> AnyData {
-    StringMsg v; v.text(s);  // 혹은 v.text() = s; (코드젠 형태에 맞춰)
-    return v;                // any 내부에 값으로 들어감
-  };
-
-  // AlarmMsg { long level; string text; }
-  sample_factories["AlarmMsg"] = [](const std::string& js) -> AnyData {
-    AlarmMsg v; v.level(0); v.text(js);
-    // JSON 파싱 원하면 여기서 채워도 됨
-    return v;
-  };
-
-  // 네임스페이스 표기 중요!
-  sample_factories["P_Alarms_PSM::C_Actual_Alarm"] = [](const std::string& js) -> AnyData {
-    P_Alarms_PSM::C_Actual_Alarm v;
-    // TODO: 실제 필드 세팅
-    return v;
-  };
 }
 
-3) 매니저 결선부
-리더 생성 후 리스너 부착 (기존 Listener 유지)
-auto t_holder = topic_factories[type_name](*participants_[domain_id], topic);
-topics_[domain_id][sub_name][topic] = t_holder;
+inline bool from_string(const std::string& s, P_Alarms_PSM::T_Actual_Alarm_StateType& out){
+  if(s=="UNACK")    { out=...::Unacknowledged; return true; }
+  if(s=="ACK")      { out=...::Acknowledged;   return true; }
+  if(s=="RESOLVED") { out=...::Resolved;       return true; }
+  if(s=="DESTROYED"){ out=...::Destroyed;      return true; }
+  if(s=="CLEARED")  { out=...::Cleared;        return true; }
+  return false;
+}
 
-auto r_holder = reader_factories[type_name](*subscribers_[domain_id][sub_name], *t_holder);
-readers_[domain_id][sub_name][topic] = r_holder;
+// to_json 에서
+j["alarmState"] = to_string(v.A_alarmState());
 
-// on_sample_이 있다면 attach; shared_ptr<void>로 보관
-if (on_sample_) listeners_[topic] = r_holder->attach_forwarding_listener(topic, on_sample_);
+// from_json 에서
+if (j.contains("alarmState")) {
+  const auto s = j["alarmState"].get<std::string>();
+  P_Alarms_PSM::T_Actual_Alarm_StateType st{};
+  if (from_string(s, st)) v.A_alarmState(st);
+  // fallback: 숫자형 들어오면 캐스팅 허용(하위호환)
+  else if (j["alarmState"].is_number_integer()) {
+    v.A_alarmState(static_cast<P_Alarms_PSM::T_Actual_Alarm_StateType>(j["alarmState"].get<int>()));
+  }
+}
+```
 
-발행 경로: 타입 분기 없이 끝!
-// type_name은 토픽→타입 매핑에서 얻었다고 가정
-auto fit = sample_factories.find(type_name);
-if (fit == sample_factories.end()) return err("No factory for " + type_name);
+---
 
-AnyData data = fit->second(payload);              // ‘샘플’ 생성
-writers_[domain_id][pub_name][topic]->write_any(data);  // 다운캐스팅/분기 없음
+# 3) 시간/키 처리 공용 유틸
+
+중복을 줄이자. 읽기/쓰기 모두에서 쓰는 **공용 함수**를 dds\_util에 두면 다른 타입도 재사용 쉬움.
+
+```cpp
+// dds_util.hpp (선언)
+void write_time(nlohmann::json& j, const char* key, const P_Common::T_DateTimeType& t);
+void read_time(const nlohmann::json& j, const char* key, P_Common::T_DateTimeType& t);
+
+void write_source_id(nlohmann::json& j, const P_Common::T_SourceIdType& sid);
+void read_source_id(const nlohmann::json& j, P_Common::T_SourceIdType& sid);
+
+// dds_util.cpp (구현 예)
+inline void write_time(nlohmann::json& j, const char* key, const P_Common::T_DateTimeType& t){
+  j[key] = { {"sec", t.A_second()}, {"nsec", t.A_nanoseconds()} };
+}
+
+inline void read_time(const nlohmann::json& j, const char* key, P_Common::T_DateTimeType& t){
+  // backward-compat: 평탄화 키도 허용
+  if (j.contains(key)) {
+    auto jt = j.at(key);
+    t.A_second(jt.value("sec", 0LL));
+    t.A_nanoseconds(jt.value("nsec", 0));
+  } else {
+    std::string s = std::string(key);
+    t.A_second(j.value(s + "_sec", 0LL));
+    t.A_nanoseconds(j.value(s + "_nsec", 0));
+  }
+}
+
+inline void write_source_id(nlohmann::json& j, const P_Common::T_SourceIdType& sid){
+  j["sourceId"] = { {"resourceId", sid.A_resourceId()}, {"instanceId", sid.A_instanceId()} };
+}
+
+inline void read_source_id(const nlohmann::json& j, P_Common::T_SourceIdType& sid){
+  if (j.contains("sourceId")) {
+    auto jsid = j["sourceId"];
+    sid.A_resourceId(jsid.value("resourceId", 0));
+    sid.A_instanceId(jsid.value("instanceId", 0));
+  } else {
+    // 평탄화 하위 호환
+    sid.A_resourceId(j.value("resourceId", 0));
+    sid.A_instanceId(j.value("instanceId", 0));
+  }
+}
+```
+
+그리고 `sample_factory.cpp`에서는 아래처럼 교체:
+
+```cpp
+// to_json:
+write_source_id(j, v.A_sourceID());
+write_time(j, "dateTimeRaised",       v.A_dateTimeRaised());
+write_time(j, "timeOfDataGeneration", v.A_timeOfDataGeneration());
+
+// from_json:
+read_source_id(j, v.A_sourceID());
+read_time(j, "timeOfDataGeneration", v.A_timeOfDataGeneration());
+read_time(j, "dateTimeRaised",       v.A_dateTimeRaised());
+```
+
+---
+
+# 4) dds\_util의 set\_bounded\_string 개선 (정책/바운드 중앙화)
+
+지금은 매번 `<20>`을 **하드코딩**하고 있어서(IDL 변경에 취약), 바운드를 **한 곳**에서 관리하고, 위반 시 처리정책(잘라내기/에러)을 선택할 수 있게 하자.
+
+```cpp
+// dds_util.hpp
+enum class BoundPolicy { Truncate, Reject };
+
+template <size_t Bound, BoundPolicy Policy = BoundPolicy::Reject, typename Setter>
+bool set_bounded_string(Setter&& set, std::string_view in, std::string* err = nullptr);
+
+// dds_util.cpp
+template <size_t B, BoundPolicy P, typename Setter>
+bool set_bounded_string(Setter&& set, std::string_view in, std::string* err){
+  if (in.size() <= B) { set(std::string(in)); return true; }
+  if constexpr (P == BoundPolicy::Truncate) { set(std::string(in.substr(0, B))); return true; }
+  else { if (err) *err = "string length exceeds bound(" + std::to_string(B) + ")"; return false; }
+}
+```
+
+그리고 **바운드 상수는 중앙화**:
+
+```cpp
+// alarms_bounds.hpp (수동/코드생성 중 택1로 유지)
+namespace alarms_bound {
+  static constexpr size_t ComponentName = 20;
+  static constexpr size_t Nature        = 20;
+  static constexpr size_t SubsystemName = 20;
+  static constexpr size_t Measure       = 20;
+}
+```
+
+사용부:
+
+```cpp
+using namespace alarms_bound;
+rtpdds::set_bounded_string<ComponentName>([&](auto&& s){ v.A_componentName(std::move(s)); }, j.value("componentName", ""));
+rtpdds::set_bounded_string<Nature>([&](auto&& s){ v.A_nature(std::move(s)); }, j.value("nature",""));
+rtpdds::set_bounded_string<SubsystemName>([&](auto&& s){ v.A_subsystemName(std::move(s)); }, j.value("subsystemName",""));
+rtpdds::set_bounded_string<Measure>([&](auto&& s){ v.A_measure(std::move(s)); }, j.value("measure",""));
+```
+
+> 추후 IDL이 바뀌면 **이 파일 한 곳**만 고치면 전 변환기가 자동으로 맞춰짐.
+
+---
+
+# 5) “레지스트리”는 유지하되, 보일러플레이트를 줄이자
+
+지금 구조(타입명→lambda) 자체는 좋아. 다만 **공용 헬퍼**로 노이즈를 확 줄이자.
+
+* 문자열: `SET_STR(v.A_xxx, "xxx", Bound)` 매크로나 래퍼 도입
+* 시간/키: `WRITE_TIME/READ_TIME`, `WRITE_KEY/READ_KEY`
+* enum: `WRITE_ENUM/READ_ENUM`
+
+예:
+
+```cpp
+#define SET_STR(SetterExpr, Key, BoundConst) \
+  if (j.contains(Key)) rtpdds::set_bounded_string<BoundConst>([&](auto&& s){ SetterExpr(std::move(s)); }, j.value(Key, std::string{}))
+
+#define READ_TIME(Key, Target)  rtpdds::read_time(j, Key, Target)
+#define WRITE_TIME(Key, Source) rtpdds::write_time(j, Key, Source)
+```
+
+---
+
+# 6) 에러 처리 모드(느슨/엄격) 스위치
+
+* **lenient**: 알 수 없는 필드 무시, 길이 초과는 잘라내기, enum 미지정 값은 무시
+* **strict**: 알 수 없는 필드/길이 초과/enum 불일치 시 즉시 실패(에러 메시지 수집)
+
+구현: 전역/스레드로컬 플래그나 `Context` 객체(설정+에러 리스트)를 `from_json` 람다 캡처로 주입.
+
+---
+
+# 7) 하위호환 테스트 & 라운드트립 테스트
+
+* 케이스: (a) 평탄화 JSON, (b) 중첩형 JSON, (c) 경계 길이 문자열, (d) enum 전 값, (e) 키/타임 누락
+* **IDL → JSON → IDL** 결과가 **동등**해야 하고, (a)도 읽히되 **to\_json은 항상 중첩형**으로.
+
+---
+
+# 8) 지금 코드 기준 핵심 차이 요약(수정 근거)
+
+* to\_json은 평탄화, from\_json은 중첩형 기대라 **불일치**
+* 문자열 bound가 **하드코딩 20**으로 중복 존재(중앙화 필요)
+* enum을 **정수 캐스팅**으로만 처리(문자열 매핑 권장)
+
+---
+
+# 9) 보너스: 앞으로 IDL이 늘어날 때
+
+* 새 타입마다 “필드 매핑”만 추가하면 되도록 **헬퍼 세트**(키/시간/문자열/enum)를 표준화.
+* 가능하면 **코드 생성기**(rtiddsgen 후) 산출물에서 바운드/필드명을 끌어와 traits를 자동 생성(쉬운 버전은 `*_bounds.hpp` 수동 유지).
+
+---
+
+필요하면 내가 위 헬퍼들(`write/read_time`, `write/read_source_id`, 개선된 `set_bounded_string`, enum 맵핑)까지 포함한 **패치 템플릿**을 한 파일로 정리해 줄 수 있어. 우선 위 1–4번만 적용해도 라운드트립이 안정적으로 맞고, 이후 6–7번으로 견고함을 올리면 “새 IDL 추가 때 건들 범위”가 획기적으로 줄어든다.
