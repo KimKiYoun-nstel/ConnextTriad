@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file gateway.cpp
  * ### 파일 설명(한글)
  * GatewayApp 구현 파일.
@@ -8,6 +8,7 @@
 #include "gateway.hpp"
 #include <iostream>
 #include <thread>
+
 namespace rtpdds {
     GatewayApp::GatewayApp() {
     }

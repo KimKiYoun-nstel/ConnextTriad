@@ -6,8 +6,7 @@
 #include <string>
 #include <typeinfo>
 #include <unordered_map>
-#include <ndds/hpp/dds/dds.hpp>
-// #include <ndds/hpp/dds/topic/Topic.hpp>
+#include <dds/dds.hpp>
 
 
 namespace rtpdds
@@ -15,15 +14,6 @@ namespace rtpdds
 using AnyData = std::any;
 
 void init_dds_type_registry();
-
-#if 0
-// 타입 이름을 C++ 타입에서 얻기 (RTI 제공 trait)
-template <typename T>
-inline std::string get_type_name()
-{
-    return std::string(rti::topic::type_name<T>::get());
-}
-#endif
 
 // Topic Holder
 struct ITopicHolder {
@@ -48,12 +38,11 @@ struct WriterHolder : public IWriterHolder {
     explicit WriterHolder(std::shared_ptr<dds::pub::DataWriter<T> > w) : writer(std::move(w)) {}
     void write_any(const AnyData& data) override
     {
-#if 0
+#if 1
         try {
-            const T& typed_sample = std::any_cast<const T&>(data);
-            writer->write(typed_sample);
+            writer->write(std::any_cast<const T&>(data));
         } catch (const std::bad_any_cast& e) {
-            throw std::runtime_error("WriterHolder: bad_any_cast for type " + rti::topic::type_name<T>::get() + ": " +
+            throw std::runtime_error("WriterHolder: bad_any_cast for type " + dds::topic::topic_type_name<T>::value() + ": " +
                                      e.what());
         }
 #else
@@ -85,11 +74,8 @@ struct ReaderHolder : public IReaderHolder {
         {
             for (auto sample : r.take()) {
                 if (sample.info().valid()) {
-#if 1
-           //        cb(topic, get_type_name<T>(), AnyData(sample.data()));
-#else
-                    cb(topic, rti::topic::type_name<T>::get(), AnyData(sample.data()));
-                    #endif
+                    //cb(topic, rti::topic::type_name<T>::get(), AnyData(sample.data()));
+                    cb(topic, dds::topic::topic_type_name<T>::value(), AnyData(sample.data()));
                 }
             }
         }

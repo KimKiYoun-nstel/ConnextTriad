@@ -14,7 +14,8 @@
 #include <string>
 #include <unordered_map>
 
-#include <ndds/hpp/dds/dds.hpp>
+#include <dds/dds.hpp>
+
 #include "dds_type_registry.hpp"
 
 

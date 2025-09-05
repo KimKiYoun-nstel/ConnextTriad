@@ -2,7 +2,7 @@
 #include <string>
 #include <string_view>
 #include <algorithm> // std::min, std::copy_n
-#include <ndds/hpp/dds/dds.hpp>
+#include <dds/dds.hpp>
 #include <rti/core/BoundedSequence.hpp>   // bounded_sequence
 #include "LDM_Common.hpp"                 // T_ShortString / T_MediumString / T_LongString
 

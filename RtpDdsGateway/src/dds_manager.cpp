@@ -1,5 +1,3 @@
-// Topic 컨테이너 추가 (헤더에도 정의 필요)
-// std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<ITopicHolder>>>> topics_;
 /**
  * @file dds_manager.cpp
  * ### 파일 설명(한글)
@@ -7,13 +5,14 @@
  * * Participant/Writer/Reader 생성과 샘플 publish, Reader Listener의 take/return_loan 흐름을 포함.
  */
 
- #include <cstring>
+#include <cstring>
 #include <functional>
 #include <iostream>
 #include <string>
 #include <unordered_map>
 
 #include "dds_manager.hpp"
+#include "dds_type_registry.hpp"
 #include "triad_log.hpp"
 #include "sample_factory.hpp"
 

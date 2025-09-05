@@ -11,6 +11,7 @@
 #include "dds_manager.hpp"
 #include "dds_type_registry.hpp"
 #include "ipc_adapter.hpp"
+
 namespace rtpdds
 {
 /** @brief 게이트웨이 애플리케이션 수명주기 관리자 */
