@@ -52,6 +52,12 @@ public:
     ~DdsManager();
 
     /**
+     * @brief 실행 중 모든 DDS 엔티티(Participant, Publisher, Subscriber, Writer, Reader 등)를 초기화(해제)한다.
+     * @details 컨테이너를 clear()하여 리소스를 모두 해제하며, 이후 재생성 가능하다.
+     */
+    void clear_entities();
+
+    /**
      * @brief 도메인ID별 participant 생성
      * @param domain_id 도메인 ID
      * @param qos_lib   QoS 라이브러리명

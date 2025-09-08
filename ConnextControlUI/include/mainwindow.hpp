@@ -33,6 +33,7 @@ class MainWindow final : public QMainWindow
     void onCreatePublisher();
     void onCreateSubscriber();
     void showActualAlarmDialogAndPublish();
+    void onClearDdsEntities(); // DDS 엔티티 전체 초기화
 
    private:
     void setupUi();
@@ -71,6 +72,9 @@ class MainWindow final : public QMainWindow
     QPushButton* btnWriter_{nullptr};
     QPushButton* btnReader_{nullptr};
     QPushButton* btnPub_{nullptr};
+    QPushButton* btnClearDds_{nullptr}; // DDS 엔티티 전체 초기화 버튼
+    QPushButton* btnClearLog_{nullptr}; // 로그 패널 clear 버튼
+    void onClearLog(); // 로그 패널 clear 슬롯
     QComboBox* cbLogLevel_{nullptr};
 
     // IPC

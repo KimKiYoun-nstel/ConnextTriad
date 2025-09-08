@@ -89,7 +89,10 @@ void IpcAdapter::install_callbacks()
             LOG_DBG("IPC", "Received IPC request: %s", req.dump().c_str());
             LOG_DBG("IPC", "op=%s, kind=%s, target=%s, args=%s", op.c_str(), kind.c_str(), target.dump().c_str(), req["args"].dump().c_str());
 
-            if (op == "create" && kind == "participant") {
+            if (op == "clear" && (kind == "dds_entities" || target == "dds_entities")) {
+                mgr_.clear_entities();
+                rsp = {{"ok", true}, {"result", {{"action", "dds entities cleared"}}}};
+            } else if (op == "create" && kind == "participant") {
                 int domain = req["args"].value("domain", 0);
                 std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
                 std::string lib = "", prof = "";

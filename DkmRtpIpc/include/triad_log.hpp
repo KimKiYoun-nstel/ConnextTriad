@@ -6,6 +6,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <cstring>
 
 namespace triad {
 
@@ -37,7 +38,37 @@ namespace triad {
         }
     }
 
-    inline void vlogf(Lvl lvl, const char *tag, const char *fmt, va_list ap) {
+    inline const char* color_code(Lvl l) {
+        switch (l) {
+        case Lvl::Debug:
+            return "\033[90m"; // 회색
+        case Lvl::Info:
+            return "\033[0m";  // 기본색
+        case Lvl::Warn:
+            return "\033[33m"; // 노란색
+        case Lvl::Error:
+        default:
+            return "\033[31m"; // 빨간색
+        }
+    }
+
+    // 파일명만 추출하는 함수
+    inline const char* base_filename(const char* path) {
+        if (!path) return "-";
+        const char* slash = std::strrchr(path, '/');
+        const char* backslash = std::strrchr(path, '\\');
+        const char* fname = path;
+        if (slash && backslash)
+            fname = (slash > backslash) ? slash + 1 : backslash + 1;
+        else if (slash)
+            fname = slash + 1;
+        else if (backslash)
+            fname = backslash + 1;
+        return fname;
+    }
+
+    // 파일명, 라인 추가
+    inline void vlogf(Lvl lvl, const char *tag, const char *file, int line, const char *fmt, va_list ap) {
         if ((int)lvl < g_level())
             return;
 
@@ -55,24 +86,24 @@ namespace triad {
             std::hash<std::thread::id>{}(std::this_thread::get_id());
 
         std::lock_guard<std::mutex> lk(g_mx());
-        std::fprintf(stderr, "[%s] [%s] [tid:%zu] [%s] %s\n", ts, s(lvl), tid,
-                     tag ? tag : "-", body);
+        std::fprintf(stderr, "%s[%s] [%s] [tid:%zu] [%s] [%s:%d] %s\033[0m\n", color_code(lvl), ts, s(lvl), tid,
+                     tag ? tag : "-", base_filename(file), line, body);
     }
 
-    inline void logf(Lvl lvl, const char *tag, const char *fmt, ...) {
+    inline void logf(Lvl lvl, const char *tag, const char *file, int line, const char *fmt, ...) {
         va_list ap;
         va_start(ap, fmt);
-        vlogf(lvl, tag, fmt, ap);
+        vlogf(lvl, tag, file, line, fmt, ap);
         va_end(ap);
     }
 
 } // namespace triad
 
 #define LOG_DBG(tag, fmt, ...)                                                 \
-    ::triad::logf(::triad::Lvl::Debug, tag, fmt, ##__VA_ARGS__)
+    ::triad::logf(::triad::Lvl::Debug, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_INF(tag, fmt, ...)                                                 \
-    ::triad::logf(::triad::Lvl::Info, tag, fmt, ##__VA_ARGS__)
+    ::triad::logf(::triad::Lvl::Info, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_WRN(tag, fmt, ...)                                                 \
-    ::triad::logf(::triad::Lvl::Warn, tag, fmt, ##__VA_ARGS__)
+    ::triad::logf(::triad::Lvl::Warn, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_ERR(tag, fmt, ...)                                                 \
-    ::triad::logf(::triad::Lvl::Error, tag, fmt, ##__VA_ARGS__)
+    ::triad::logf(::triad::Lvl::Error, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)

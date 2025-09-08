@@ -13,7 +13,7 @@ set(SOURCES
     include/actual_alarm_dialog.hpp  # 헤더 파일 명시적으로
 )
 
-add_executable(ConnextControlUI ${SOURCES})
+add_executable(ConnextControlUI WIN32 ${SOURCES})
 
 target_include_directories(ConnextControlUI PRIVATE include)
 target_include_directories(ConnextControlUI PRIVATE ${CMAKE_SOURCE_DIR}/third_party)

@@ -75,6 +75,31 @@ void MainWindow::setupUi()
     auto* w = new QWidget;
     setCentralWidget(w);
     auto* lay = new QVBoxLayout(w);
+        // DDS 엔티티 전체 초기화 버튼
+        btnClearDds_ = new QPushButton("Clear DDS Entities");
+        lay->addWidget(btnClearDds_);
+
+        // 버튼 시인성 개선: 공통 스타일 적용
+        const QString btnStyle =
+            "QPushButton {"
+            "  background-color: #e3eafc;"
+            "  border: 1.5px solid #90caf9;"
+            "  border-radius: 6px;"
+            "  padding: 6px 16px;"
+            "  font-weight: bold;"
+            "  color: #1a237e;"
+            "  box-shadow: 2px 2px 6px #b0bec5;"
+            "}"
+            "QPushButton:hover {"
+            "  background-color: #bbdefb;"
+            "  border: 2px solid #1976d2;"
+            "  color: #0d1335;"
+            "}";
+        QList<QPushButton*> btns = {btnConn_, btnPart_, btnPublisher_, btnSubscriber_, btnWriter_, btnReader_, btnPub_, btnClearDds_};
+        if (btnClearLog_) btns << btnClearLog_;
+        for (QPushButton* b : btns) {
+            if (b) b->setStyleSheet(btnStyle);
+        }
 
     // 연결 영역
     auto* gbConn = new QGroupBox("Connection");
@@ -161,7 +186,9 @@ void MainWindow::setupUi()
     teLog_ = new QTextEdit();
     teLog_->setReadOnly(true);
     teLog_->setMinimumHeight(160);
+    btnClearLog_ = new QPushButton("Clear Log");
     lg->addWidget(teLog_);
+    lg->addWidget(btnClearLog_);
     lay->addWidget(gbLog);
 
     // 연결
@@ -183,8 +210,15 @@ void MainWindow::setupUi()
         }
         // 기존 타입 템플릿은 그대로 유지
     });
+    connect(btnClearDds_, &QPushButton::clicked, this, &MainWindow::onClearDdsEntities);
+    connect(btnClearLog_, &QPushButton::clicked, this, &MainWindow::onClearLog);
 
     statusBar()->showMessage("Ready");
+}
+
+void MainWindow::onClearLog()
+{
+    if (teLog_) teLog_->clear();
 }
 
 void MainWindow::updateUiState()
@@ -423,6 +457,14 @@ void MainWindow::showActualAlarmDialogAndPublish() {
           .proto(1);
         send_req(rb);
     }
+}
+
+void MainWindow::onClearDdsEntities()
+{
+    pulseButton(btnClearDds_);
+    triad::rpc::RpcBuilder rb;
+    rb.set_op("clear").set_target("dds_entities").proto(1);
+    send_req(rb);
 }
 
 // ------- 전송 헬퍼 --------

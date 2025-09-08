@@ -19,7 +19,6 @@
 
 namespace rtpdds
 {
-
 DdsManager::DdsManager()
 {
     // 타입 레지스트리 및 샘플/JSON 변환 테이블 초기화
@@ -31,12 +30,24 @@ DdsManager::DdsManager()
 
 DdsManager::~DdsManager()
 {
-    // 스마트 포인터 기반 자원 해제: 별도 delete 불필요
+    clear_entities();
+}
+
+/**
+ * @brief 실행 중 모든 DDS 엔티티(Participant, Publisher, Subscriber, Writer, Reader 등)를 초기화(해제)한다.
+ * @details 컨테이너를 clear()하여 리소스를 모두 해제하며, 이후 재생성 가능하다.
+ */
+void DdsManager::clear_entities()
+{
     participants_.clear();
     publishers_.clear();
     subscribers_.clear();
     writers_.clear();
     readers_.clear();
+    listeners_.clear();
+    topic_to_type_.clear();
+    topics_.clear();
+    // 필요시 추가 리소스도 clear
 }
 
 /**
@@ -304,7 +315,7 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
                     LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
                     continue;
                 }
-                holder->write_any(sample.has_value());
+                holder->write_any(sample);
                 LOG_INF("DDS", "write ok topic=%s domain=%d pub=%s size=%zu", topic.c_str(), dom.first, pub.first.c_str(), text.size());
                 count++;
             }
