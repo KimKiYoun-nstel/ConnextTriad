@@ -8,6 +8,8 @@
 #include "sample_factory.hpp"
 #include "dds_util.hpp"
 #include "Alarms_PSM_enum_utils.hpp"
+#include "triad_log.hpp"
+
 #include <nlohmann/json.hpp>
 
 
@@ -20,6 +22,12 @@
 namespace rtpdds
 {
 
+template <class BoundedStr>
+inline std::string to_std_string(const BoundedStr& s)
+{
+    return std::string(s.c_str());
+}
+
 // AnyData → JSON 변환 테이블
 std::unordered_map<std::string, SampleToJson> sample_to_json;
 
@@ -30,26 +38,46 @@ std::unordered_map<std::string, SampleToJson> sample_to_json;
 void init_sample_to_json()
 {
     sample_to_json["StringMsg"] = [](const AnyData& data) {
-        const auto& v = std::any_cast<StringMsg>(data); // 타입 안전성 보장
-        return nlohmann::json{{"text", v.text()}};
+        LOG_DBG("SAMPLE", "to_json begin type=StringMsg");
+        try {
+            const auto& v = std::any_cast<StringMsg>(data);
+            return nlohmann::json{{"text", v.text()}};
+        } catch (const std::exception& e) {
+            LOG_ERR("SAMPLE", "to_json error type=StringMsg msg=%s", e.what());
+            return nlohmann::json();
+        }
     };
     sample_to_json["AlarmMsg"] = [](const AnyData& data) {
-        const auto& v = std::any_cast<AlarmMsg>(data);
-        return nlohmann::json{{"level", v.level()}, {"text", v.text()}};
+        LOG_DBG("SAMPLE", "to_json begin type=AlarmMsg");
+        try {
+            const auto& v = std::any_cast<AlarmMsg>(data);
+            return nlohmann::json{{"level", v.level()}, {"text", v.text()}};
+        } catch (const std::exception& e) {
+            LOG_ERR("SAMPLE", "to_json error type=AlarmMsg msg=%s", e.what());
+            return nlohmann::json();
+        }
     };
     sample_to_json["P_Alarms_PSM::C_Actual_Alarm"] = [](const AnyData& data) {
-        const auto& v = std::any_cast<P_Alarms_PSM::C_Actual_Alarm>(data);
-        nlohmann::json j;
-        // 각 필드별 변환
-        rtpdds::write_source_id(j, v.A_sourceID());
-        j["componentName"] = v.A_componentName();
-        j["nature"] = v.A_nature();
-        j["subsystemName"] = v.A_subsystemName();
-        j["measure"] = v.A_measure();
-        j["alarmState"] = rtpdds::P_Alarms_PSM_enum::to_string(v.A_alarmState());
-        WRITE_TIME("dateTimeRaised", v.A_dateTimeRaised());
-        WRITE_TIME("timeOfDataGeneration", v.A_timeOfDataGeneration());
-        return j;
+        LOG_DBG("SAMPLE", "to_json begin type=P_Alarms_PSM::C_Actual_Alarm");
+        try {
+            const auto& v = std::any_cast<P_Alarms_PSM::C_Actual_Alarm>(data);
+            nlohmann::json j;
+            rtpdds::write_source_id(j, "sourceId", v.A_sourceID());
+            // 추가: rasingCondition, alarmCategory 관련 sourceID
+            rtpdds::write_source_id(j, "rasingConditionSourceID", v.A_raisingCondition_sourceID());
+            rtpdds::write_source_id(j, "alarmCategorySourceID", v.A_alarmCategory_sourceID());
+            j["componentName"] = to_std_string(v.A_componentName());
+            j["nature"] = to_std_string(v.A_nature());
+            j["subsystemName"] = to_std_string(v.A_subsystemName());
+            j["measure"] = to_std_string(v.A_measure());
+            j["alarmState"] = rtpdds::P_Alarms_PSM_enum::to_string(v.A_alarmState());
+            WRITE_TIME("dateTimeRaised", v.A_dateTimeRaised());
+            WRITE_TIME("timeOfDataGeneration", v.A_timeOfDataGeneration());
+            return j;
+        } catch (const std::exception& e) {
+            LOG_ERR("SAMPLE", "to_json error type=P_Alarms_PSM::C_Actual_Alarm msg=%s", e.what());
+            return nlohmann::json();
+        }
     };
 }
 
@@ -97,7 +125,10 @@ void init_sample_factories()
             nlohmann::json j = nlohmann::json::parse(js);
 
             // key
-            rtpdds::read_source_id(j, v.A_sourceID());
+            rtpdds::read_source_id(j, "sourceId", v.A_sourceID());
+            // 추가: rasingCondition, alarmCategory 관련 sourceID
+            rtpdds::read_source_id(j, "rasingConditionSourceID", v.A_raisingCondition_sourceID());
+            rtpdds::read_source_id(j, "alarmCategorySourceID", v.A_alarmCategory_sourceID());
 
             // times
             READ_TIME("timeOfDataGeneration", v.A_timeOfDataGeneration());

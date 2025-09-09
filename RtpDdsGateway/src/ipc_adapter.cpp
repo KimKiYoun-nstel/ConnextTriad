@@ -254,19 +254,31 @@ void IpcAdapter::install_callbacks()
 
     // DDS에서 샘플 수신 시 EVT 전송(JSON→CBOR)
     mgr_.set_on_sample([this](const std::string& topic, const std::string& type_name, const AnyData& data) {
+        LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
         nlohmann::json display;
+        nlohmann::json data_json;
         auto it = sample_to_json.find(type_name);
-        if (it != sample_to_json.end()) {
-            display = it->second(data);
-        } else {
-            // fallback: any를 string으로 변환 시도, 실패 시 null
+        bool mapped = (it != sample_to_json.end());
+        LOG_DBG("IPC", "json mapper %s for type=%s", mapped?"hit":"miss", type_name.c_str());
+        if (mapped) {
             try {
-                display = nlohmann::json{{"raw"}};
+                display = it->second(data);
+                auto s = display.dump();
+                if (s.size() > 2048) s.resize(2048);
+                LOG_DBG("IPC", "display json preview=%s", s.c_str());
+                // data 필드도 동일 변환 사용 (원본/가공 분리 필요시 별도 테이블 도입)
+                data_json = it->second(data);
             } catch (...) {
-                display = nullptr;
+                LOG_WRN("IPC", "sample_to_json failed type=%s, fallback used", type_name.c_str());
+                display = nlohmann::json{{"raw"}};
+                data_json = nlohmann::json();
             }
+        } else {
+            display = nullptr;
+            data_json = nlohmann::json();
         }
-        nlohmann::json evt = { {"evt", "data"}, {"topic", topic}, {"type", type_name}, {"display", display} };
+        nlohmann::json evt = { {"evt", "data"}, {"topic", topic}, {"type", type_name}, {"display", display}, {"data", data_json} };
+        LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d", topic.c_str(), type_name.c_str(), !display.is_null());
         auto out = nlohmann::json::to_cbor(evt);
         ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
     });

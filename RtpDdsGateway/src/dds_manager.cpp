@@ -225,6 +225,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
                                     const std::string& qos_profile)
 {
     LOG_DBG("DDS", "create_reader(domain_id=%d, sub_name=%s, topic=%s, type_name=%s, qos_lib=%s, qos_profile=%s)", domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    LOG_INF("DDS", "reader ready domain=%d sub=%s topic=%s type=%s", domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str());
     if (!participants_.count(domain_id)) {
         DdsResult res = create_participant(domain_id, qos_lib, qos_profile);
         if (!res.ok) return DdsResult(false, DdsErrorCategory::Resource, "Participant creation failed: " + res.reason);
@@ -270,6 +271,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
     if (on_sample_) {
         auto guard = reader_holder->attach_forwarding_listener(topic, on_sample_);
         listeners_[topic] = guard;
+    LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
     }
 
     LOG_INF("DDS", "reader created domain=%d sub=%s topic=%s", domain_id, sub_name.c_str(), topic.c_str());
@@ -393,6 +395,7 @@ DdsResult DdsManager::publish_text(int domain_id, const std::string& pub_name, c
 void DdsManager::set_on_sample(SampleHandler cb)
 {
     on_sample_ = std::move(cb);
+    LOG_DBG("DDS", "on_sample handler installed");
 }
 
 }  // namespace rtpdds

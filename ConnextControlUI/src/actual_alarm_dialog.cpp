@@ -13,11 +13,11 @@ ActualAlarmDialog::ActualAlarmDialog(QWidget* parent) : QDialog(parent) {
     dateTimeRaised_ = new QDateTimeEdit(QDateTime::currentDateTime());
     alarmState_ = new QComboBox();
     alarmState_->addItems({
-        "L_Actual_Alarm_StateType_Unacknowledged",
-        "L_Actual_Alarm_StateType_Acknowledged",
-        "L_Actual_Alarm_StateType_Resolved",
-        "L_Actual_Alarm_StateType_Destroyed",
-        "L_Actual_Alarm_StateType_Cleared"
+        "UNACK",
+        "ACK",
+        "RESOLVED",
+        "DESTROYED",
+        "CLEARED"
     });
     raisingCondRes_ = new QLineEdit("2");
     raisingCondInst_ = new QLineEdit("200");
@@ -46,30 +46,30 @@ ActualAlarmDialog::ActualAlarmDialog(QWidget* parent) : QDialog(parent) {
 
 QJsonObject ActualAlarmDialog::toJson() const {
     QJsonObject obj;
-    obj["A_sourceID"] = QJsonObject{
-        {"A_resourceId", sourceIdRes_->text().toInt()},
-        {"A_instanceId", sourceIdInst_->text().toInt()}
+    obj["sourceID"] = QJsonObject{
+        {"resourceId", sourceIdRes_->text().toInt()},
+        {"instanceId", sourceIdInst_->text().toInt()}
     };
-    obj["A_timeOfDataGeneration"] = QJsonObject{
-        {"A_second", timeGen_->dateTime().toSecsSinceEpoch()},
-        {"A_nanoseconds", 0}
+    obj["timeOfDataGeneration"] = QJsonObject{
+        {"second", timeGen_->dateTime().toSecsSinceEpoch()},
+        {"nanoseconds", 0}
     };
-    obj["A_componentName"] = componentName_->text();
-    obj["A_nature"] = nature_->text();
-    obj["A_subsystemName"] = subsystemName_->text();
-    obj["A_measure"] = measure_->text();
-    obj["A_dateTimeRaised"] = QJsonObject{
-        {"A_second", dateTimeRaised_->dateTime().toSecsSinceEpoch()},
-        {"A_nanoseconds", 0}
+    obj["componentName"] = componentName_->text();
+    obj["nature"] = nature_->text();
+    obj["subsystemName"] = subsystemName_->text();
+    obj["measure"] = measure_->text();
+    obj["dateTimeRaised"] = QJsonObject{
+        {"second", dateTimeRaised_->dateTime().toSecsSinceEpoch()},
+        {"nanoseconds", 0}
     };
-    obj["A_alarmState"] = alarmState_->currentText();
-    obj["A_raisingCondition_sourceID"] = QJsonObject{
-        {"A_resourceId", raisingCondRes_->text().toInt()},
-        {"A_instanceId", raisingCondInst_->text().toInt()}
+    obj["alarmState"] = alarmState_->currentText();
+    obj["raisingConditionSourceID"] = QJsonObject{
+        {"resourceId", raisingCondRes_->text().toInt()},
+        {"instanceId", raisingCondInst_->text().toInt()}
     };
-    obj["A_alarmCategory_sourceID"] = QJsonObject{
-        {"A_resourceId", alarmCatRes_->text().toInt()},
-        {"A_instanceId", alarmCatInst_->text().toInt()}
+    obj["alarmCategorySourceID"] = QJsonObject{
+        {"resourceId", alarmCatRes_->text().toInt()},
+        {"instanceId", alarmCatInst_->text().toInt()}
     };
     return obj;
 }

@@ -60,7 +60,7 @@ std::string generate_id() {
  * @param t DDS 시간 객체
  */
 void write_time(nlohmann::json& j, const char* key, const P_LDM_Common::T_DateTimeType& t) {
-    j[key] = { {"sec", t.A_second()}, {"nsec", t.A_nanoseconds()} };
+    j[key] = { {"second", t.A_second()}, {"nanoseconds", t.A_nanoseconds()} };
 }
 
 /**
@@ -72,12 +72,12 @@ void write_time(nlohmann::json& j, const char* key, const P_LDM_Common::T_DateTi
 void read_time(const nlohmann::json& j, const char* key, P_LDM_Common::T_DateTimeType& t) {
     if (j.contains(key)) {
         auto jt = j.at(key);
-        t.A_second(jt.value("sec", 0LL));
-        t.A_nanoseconds(jt.value("nsec", 0));
+        t.A_second(jt.value("second", 0LL));
+        t.A_nanoseconds(jt.value("nanoseconds", 0));
     } else {
         std::string s = std::string(key);
-        t.A_second(j.value(s + "_sec", 0LL));
-        t.A_nanoseconds(j.value(s + "_nsec", 0));
+        t.A_second(j.value(s + "second", 0LL));
+        t.A_nanoseconds(j.value(s + "nanoseconds", 0));
     }
 }
 
@@ -86,9 +86,9 @@ void read_time(const nlohmann::json& j, const char* key, P_LDM_Common::T_DateTim
  * @param j JSON 객체
  * @param sid DDS 식별자 객체
  */
-void write_source_id(nlohmann::json& j, const P_LDM_Common::T_IdentifierType& sid)
+void write_source_id(nlohmann::json& j, const char* key, const P_LDM_Common::T_IdentifierType& sid)
 {
-    j["sourceId"] = { {"resourceId", sid.A_resourceId()}, {"instanceId", sid.A_instanceId()} };
+    j[key] = { {"resourceId", sid.A_resourceId()}, {"instanceId", sid.A_instanceId()} };
 }
 
 /**
@@ -96,10 +96,10 @@ void write_source_id(nlohmann::json& j, const P_LDM_Common::T_IdentifierType& si
  * @param j JSON 객체
  * @param sid DDS 식별자 객체
  */
-void read_source_id(const nlohmann::json& j, P_LDM_Common::T_IdentifierType& sid)
+void read_source_id(const nlohmann::json& j, const char* key, P_LDM_Common::T_IdentifierType& sid)
 {
-    if (j.contains("sourceId")) {
-        auto jsid = j["sourceId"];
+    if (j.contains(key)) {
+        auto jsid = j[key];
         sid.A_resourceId(jsid.value("resourceId", 0));
         sid.A_instanceId(jsid.value("instanceId", 0));
     } else {

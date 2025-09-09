@@ -1,250 +1,138 @@
-ㅇ좋아, 이 변환기(샘플 공장)를 “앞으로 추가될 모든 IDL 타입”까지 확장 가능한 구조로 만들려면 기준을 딱 잡아야 해. 아래 로드맵대로 손보면, 스키마 일관성·라운드트립 보장·타입 안정성·확장성 네 마리 토끼를 한꺼번에 잡을 수 있어.
-
-# 0) 목표 정리
-
-* **단일 JSON 스키마**로 통일(중첩형 권장: `sourceId{...}`, `dateTimeRaised{sec,nsec}`)
-* **IDL↔JSON 라운드트립 동등성** 확보
-* **열거형은 문자열**로 외부 노출(내부는 enum)
-* **문자열 bound는 한 곳에서 관리**하고 변환시 강제
-* **Backward-compat 허용**(이전 JSON도 읽되, 쓰기는 새 스키마만)
-
-아래 수정안은 네 소스에 바로 반영 가능한 형태로 썼다.
-
----
-
-# 1) JSON 스키마를 단일화 (to\_json 쪽 수정)
-
-현재 to\_json은 `resourceId/instanceId`와 시간 필드를 **평탄화**해서 내보내고(from\_json은 **중첩**을 기대) 있어서 라운드트립이 깨져. to\_json도 **중첩형으로 통일**하자.
-근거: 평탄화 키 사용부, 중첩 기대부.
+원인: 수신 EVT에 **실제 페이로드가 실리지 않음**. `ipc_adapter.cpp`에서 수신 콜백은 다음 형태로 EVT를 구성함:
 
 ```cpp
-// before (평탄화)
-// j["resourceId"] = v.A_sourceID().A_resourceId();
-// j["instanceId"] = v.A_sourceID().A_instanceId();
-// j["dateTimeRaised_sec"] = v.A_dateTimeRaised().A_second();
-// j["dateTimeRaised_nsec"] = v.A_dateTimeRaised().A_nanoseconds();
-// j["timeOfDataGeneration_sec"] = v.A_timeOfDataGeneration().A_second();
-// j["timeOfDataGeneration_nsec"] = v.A_timeOfDataGeneration().A_nanoseconds();
-
-// after (중첩형으로 통일)
-nlohmann::json j;
-j["sourceId"] = {
-  {"resourceId", v.A_sourceID().A_resourceId()},
-  {"instanceId", v.A_sourceID().A_instanceId()}
-};
-j["dateTimeRaised"] = {
-  {"sec",  v.A_dateTimeRaised().A_second()},
-  {"nsec", v.A_dateTimeRaised().A_nanoseconds()}
-};
-j["timeOfDataGeneration"] = {
-  {"sec",  v.A_timeOfDataGeneration().A_second()},
-  {"nsec", v.A_timeOfDataGeneration().A_nanoseconds()}
+nlohmann::json evt = {
+  {"evt","data"},
+  {"topic", topic},
+  {"type", type_name},
+  {"display", display} // ← 변환된 요약만 담음
 };
 ```
 
----
+`display`는 `sample_to_json[type_name](data)`가 있을 때만 채워짐. 매핑이 없거나 변환에서 예외가 나면 코드가 `display = nullptr` 또는 의미 없는 `{"raw"}` 형태로 대체함. 따라서 UI는 “수신 이벤트”는 보지만 **내용은 비어 있음**.
 
-# 2) enum은 문자열로 (가독성/호환성↑)
+추가 가능성: `type_name` 불일치. 콜백에서 사용하는 `dds::topic::topic_type_name<T>::value()` 값이 `sample_to_json`의 키와 조금이라도 다르면 매핑 실패 → `display` 비어 있음.
 
-지금 from\_json이 `alarmState`를 정수로 캐스팅하고 있어(가독성↓). 문자열 ↔ enum 매핑 헬퍼를 두자.
+증거:
 
-```cpp
-// enum <-> string 매핑
-inline const char* to_string(P_Alarms_PSM::T_Actual_Alarm_StateType e) {
-  switch(e){
-    case P_Alarms_PSM::T_Actual_Alarm_StateType::Unacknowledged: return "UNACK";
-    case P_Alarms_PSM::T_Actual_Alarm_StateType::Acknowledged:   return "ACK";
-    case P_Alarms_PSM::T_Actual_Alarm_StateType::Resolved:       return "RESOLVED";
-    case P_Alarms_PSM::T_Actual_Alarm_StateType::Destroyed:      return "DESTROYED";
-    case P_Alarms_PSM::T_Actual_Alarm_StateType::Cleared:        return "CLEARED";
-    default: return "UNKNOWN";
+* `ReaderHolder`가 콜백으로 넘기는 것은 `AnyData(sample.data())`이며 타입은 정상 유지.
+* `ipc_adapter.cpp`의 EVT 구성은 `display`만 포함. 원본 데이터나 안전한 기본 직렬화가 없음.
+* `sample_to_json`에 없는 타입이거나 변환 실패 시 `display`가 null/placeholder가 됨.
+
+해결 방향 요약:
+
+* EVT에 `data` 또는 `payload`로 **원본 변환 결과**를 항상 포함. 매핑 없으면 최소한의 안전 직렬화(예: `StringMsg{text}`)라도 채움.
+* `type_name`을 표준화하거나, `topic_to_type_` 매핑을 사용해 `sample_to_json` 조회 키를 일치시킴.
+
+로그 추가 제안(정확한 위치와 내용):
+
+1. `RtpDdsGateway/include/dds_type_registry.hpp`
+
+* `ReaderHolder::ForwardingReaderListener::on_data_available`
+
+  ```cpp
+  LOG_DBG("DDS", "rx begin topic=%s type=%s", topic.c_str(), dds::topic::topic_type_name<T>::value());
+  for (auto sample : r.take()) {
+      auto& info = sample.info();
+      LOG_DBG("DDS", "rx sample valid=%d inst=%lld ss=%d vs=%d is=%d ts=%ld",
+              info.valid(), (long long)info.instance_handle().value(),
+              (int)info.state().sample_state(), (int)info.state().view_state(),
+              (int)info.state().instance_state(),
+              (long)info.source_timestamp().to_microsecs());
+      if (info.valid()) {
+          // 그대로
+      }
   }
-}
+  LOG_DBG("DDS", "rx end topic=%s", topic.c_str());
+  ```
+* `WriterHolder::write_any` catch에서
 
-inline bool from_string(const std::string& s, P_Alarms_PSM::T_Actual_Alarm_StateType& out){
-  if(s=="UNACK")    { out=...::Unacknowledged; return true; }
-  if(s=="ACK")      { out=...::Acknowledged;   return true; }
-  if(s=="RESOLVED") { out=...::Resolved;       return true; }
-  if(s=="DESTROYED"){ out=...::Destroyed;      return true; }
-  if(s=="CLEARED")  { out=...::Cleared;        return true; }
-  return false;
-}
+  ```cpp
+  LOG_ERR("DDS", "any_cast fail type=%s what=%s",
+          dds::topic::topic_type_name<T>::value(), e.what());
+  ```
 
-// to_json 에서
-j["alarmState"] = to_string(v.A_alarmState());
+2. `RtpDdsGateway/src/dds_manager.cpp`
 
-// from_json 에서
-if (j.contains("alarmState")) {
-  const auto s = j["alarmState"].get<std::string>();
-  P_Alarms_PSM::T_Actual_Alarm_StateType st{};
-  if (from_string(s, st)) v.A_alarmState(st);
-  // fallback: 숫자형 들어오면 캐스팅 허용(하위호환)
-  else if (j["alarmState"].is_number_integer()) {
-    v.A_alarmState(static_cast<P_Alarms_PSM::T_Actual_Alarm_StateType>(j["alarmState"].get<int>()));
-  }
-}
-```
+* `create_reader(...)` 성공 직후
 
----
+  ```cpp
+  LOG_INF("DDS", "reader ready domain=%d sub=%s topic=%s type=%s",
+          domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str());
+  ```
+* 리스너 장착 직후
 
-# 3) 시간/키 처리 공용 유틸
+  ```cpp
+  LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
+  ```
+* `set_on_sample`에서 핸들러 설정 시
 
-중복을 줄이자. 읽기/쓰기 모두에서 쓰는 **공용 함수**를 dds\_util에 두면 다른 타입도 재사용 쉬움.
+  ```cpp
+  LOG_DBG("DDS", "on_sample handler installed");
+  ```
 
-```cpp
-// dds_util.hpp (선언)
-void write_time(nlohmann::json& j, const char* key, const P_Common::T_DateTimeType& t);
-void read_time(const nlohmann::json& j, const char* key, P_Common::T_DateTimeType& t);
+3. `RtpDdsGateway/src/ipc_adapter.cpp`
 
-void write_source_id(nlohmann::json& j, const P_Common::T_SourceIdType& sid);
-void read_source_id(const nlohmann::json& j, P_Common::T_SourceIdType& sid);
+* `mgr_.set_on_sample([...])` 람다의 시작부
 
-// dds_util.cpp (구현 예)
-inline void write_time(nlohmann::json& j, const char* key, const P_Common::T_DateTimeType& t){
-  j[key] = { {"sec", t.A_second()}, {"nsec", t.A_nanoseconds()} };
-}
+  ```cpp
+  LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
+  ```
+* `sample_to_json` 조회 결과에 따라
 
-inline void read_time(const nlohmann::json& j, const char* key, P_Common::T_DateTimeType& t){
-  // backward-compat: 평탄화 키도 허용
-  if (j.contains(key)) {
-    auto jt = j.at(key);
-    t.A_second(jt.value("sec", 0LL));
-    t.A_nanoseconds(jt.value("nsec", 0));
-  } else {
-    std::string s = std::string(key);
-    t.A_second(j.value(s + "_sec", 0LL));
-    t.A_nanoseconds(j.value(s + "_nsec", 0));
-  }
-}
+  ```cpp
+  bool mapped = (it != sample_to_json.end());
+  LOG_DBG("IPC", "json mapper %s for type=%s", mapped?"hit":"miss", type_name.c_str());
+  ```
+* 변환 성공 시 요약 프리뷰(너무 길면 자름)
 
-inline void write_source_id(nlohmann::json& j, const P_Common::T_SourceIdType& sid){
-  j["sourceId"] = { {"resourceId", sid.A_resourceId()}, {"instanceId", sid.A_instanceId()} };
-}
+  ```cpp
+  auto s = display.dump();
+  if (s.size() > 256) s.resize(256);
+  LOG_DBG("IPC", "display json preview=%s", s.c_str());
+  ```
+* 변환 실패/예외 시
 
-inline void read_source_id(const nlohmann::json& j, P_Common::T_SourceIdType& sid){
-  if (j.contains("sourceId")) {
-    auto jsid = j["sourceId"];
-    sid.A_resourceId(jsid.value("resourceId", 0));
-    sid.A_instanceId(jsid.value("instanceId", 0));
-  } else {
-    // 평탄화 하위 호환
-    sid.A_resourceId(j.value("resourceId", 0));
-    sid.A_instanceId(j.value("instanceId", 0));
-  }
-}
-```
+  ```cpp
+  LOG_WRN("IPC", "display build failed type=%s, fallback used", type_name.c_str());
+  ```
+* EVT 전송 직전
 
-그리고 `sample_factory.cpp`에서는 아래처럼 교체:
+  ```cpp
+  LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d",
+          topic.c_str(), type_name.c_str(), !display.is_null());
+  ```
 
-```cpp
-// to_json:
-write_source_id(j, v.A_sourceID());
-write_time(j, "dateTimeRaised",       v.A_dateTimeRaised());
-write_time(j, "timeOfDataGeneration", v.A_timeOfDataGeneration());
+4. `RtpDdsGateway/src/sample_factory.cpp`
 
-// from_json:
-read_source_id(j, v.A_sourceID());
-read_time(j, "timeOfDataGeneration", v.A_timeOfDataGeneration());
-read_time(j, "dateTimeRaised",       v.A_dateTimeRaised());
-```
+* 각 변환 람다 내부 상단
 
----
+  ```cpp
+  LOG_DBG("SAMPLE", "to_json begin type=StringMsg");
+  ```
+* 예외 캐치 시
 
-# 4) dds\_util의 set\_bounded\_string 개선 (정책/바운드 중앙화)
+  ```cpp
+  LOG_ERR("SAMPLE", "to_json error type=... msg=%s", e.what());
+  ```
 
-지금은 매번 `<20>`을 **하드코딩**하고 있어서(IDL 변경에 취약), 바운드를 **한 곳**에서 관리하고, 위반 시 처리정책(잘라내기/에러)을 선택할 수 있게 하자.
+5. `ConnextControlUI/src/mainwindow.cpp`(수신 처리부)
 
-```cpp
-// dds_util.hpp
-enum class BoundPolicy { Truncate, Reject };
+* EVT 수신 시 CBOR→JSON 파싱 성공 여부, `display` 존재 여부, 키 필드 출력
 
-template <size_t Bound, BoundPolicy Policy = BoundPolicy::Reject, typename Setter>
-bool set_bounded_string(Setter&& set, std::string_view in, std::string* err = nullptr);
+  ```cpp
+  appendLog(QString("[EVT] topic=%1 type=%2 has_display=%3 json=%4")
+            .arg(topic).arg(type).arg(display_present).arg(pretty_json_truncated));
+  ```
 
-// dds_util.cpp
-template <size_t B, BoundPolicy P, typename Setter>
-bool set_bounded_string(Setter&& set, std::string_view in, std::string* err){
-  if (in.size() <= B) { set(std::string(in)); return true; }
-  if constexpr (P == BoundPolicy::Truncate) { set(std::string(in.substr(0, B))); return true; }
-  else { if (err) *err = "string length exceeds bound(" + std::to_string(B) + ")"; return false; }
-}
-```
+문제1의 직접적 원인 정리:
 
-그리고 **바운드 상수는 중앙화**:
+* `ipc_adapter.cpp`의 EVT 포맷이 **`display`만** 싣고, 매핑 실패 시 **실제 데이터가 빠짐**.
+* `type_name` 키가 `sample_to_json`과 불일치하면 매핑 실패가 빈번.
+* 결과적으로 UI는 “수신 이벤트”만 보고 **내용은 못 받음**.
 
-```cpp
-// alarms_bounds.hpp (수동/코드생성 중 택1로 유지)
-namespace alarms_bound {
-  static constexpr size_t ComponentName = 20;
-  static constexpr size_t Nature        = 20;
-  static constexpr size_t SubsystemName = 20;
-  static constexpr size_t Measure       = 20;
-}
-```
+즉시 점검 포인트:
 
-사용부:
-
-```cpp
-using namespace alarms_bound;
-rtpdds::set_bounded_string<ComponentName>([&](auto&& s){ v.A_componentName(std::move(s)); }, j.value("componentName", ""));
-rtpdds::set_bounded_string<Nature>([&](auto&& s){ v.A_nature(std::move(s)); }, j.value("nature",""));
-rtpdds::set_bounded_string<SubsystemName>([&](auto&& s){ v.A_subsystemName(std::move(s)); }, j.value("subsystemName",""));
-rtpdds::set_bounded_string<Measure>([&](auto&& s){ v.A_measure(std::move(s)); }, j.value("measure",""));
-```
-
-> 추후 IDL이 바뀌면 **이 파일 한 곳**만 고치면 전 변환기가 자동으로 맞춰짐.
-
----
-
-# 5) “레지스트리”는 유지하되, 보일러플레이트를 줄이자
-
-지금 구조(타입명→lambda) 자체는 좋아. 다만 **공용 헬퍼**로 노이즈를 확 줄이자.
-
-* 문자열: `SET_STR(v.A_xxx, "xxx", Bound)` 매크로나 래퍼 도입
-* 시간/키: `WRITE_TIME/READ_TIME`, `WRITE_KEY/READ_KEY`
-* enum: `WRITE_ENUM/READ_ENUM`
-
-예:
-
-```cpp
-#define SET_STR(SetterExpr, Key, BoundConst) \
-  if (j.contains(Key)) rtpdds::set_bounded_string<BoundConst>([&](auto&& s){ SetterExpr(std::move(s)); }, j.value(Key, std::string{}))
-
-#define READ_TIME(Key, Target)  rtpdds::read_time(j, Key, Target)
-#define WRITE_TIME(Key, Source) rtpdds::write_time(j, Key, Source)
-```
-
----
-
-# 6) 에러 처리 모드(느슨/엄격) 스위치
-
-* **lenient**: 알 수 없는 필드 무시, 길이 초과는 잘라내기, enum 미지정 값은 무시
-* **strict**: 알 수 없는 필드/길이 초과/enum 불일치 시 즉시 실패(에러 메시지 수집)
-
-구현: 전역/스레드로컬 플래그나 `Context` 객체(설정+에러 리스트)를 `from_json` 람다 캡처로 주입.
-
----
-
-# 7) 하위호환 테스트 & 라운드트립 테스트
-
-* 케이스: (a) 평탄화 JSON, (b) 중첩형 JSON, (c) 경계 길이 문자열, (d) enum 전 값, (e) 키/타임 누락
-* **IDL → JSON → IDL** 결과가 **동등**해야 하고, (a)도 읽히되 **to\_json은 항상 중첩형**으로.
-
----
-
-# 8) 지금 코드 기준 핵심 차이 요약(수정 근거)
-
-* to\_json은 평탄화, from\_json은 중첩형 기대라 **불일치**
-* 문자열 bound가 **하드코딩 20**으로 중복 존재(중앙화 필요)
-* enum을 **정수 캐스팅**으로만 처리(문자열 매핑 권장)
-
----
-
-# 9) 보너스: 앞으로 IDL이 늘어날 때
-
-* 새 타입마다 “필드 매핑”만 추가하면 되도록 **헬퍼 세트**(키/시간/문자열/enum)를 표준화.
-* 가능하면 **코드 생성기**(rtiddsgen 후) 산출물에서 바운드/필드명을 끌어와 traits를 자동 생성(쉬운 버전은 `*_bounds.hpp` 수동 유지).
-
----
-
-필요하면 내가 위 헬퍼들(`write/read_time`, `write/read_source_id`, 개선된 `set_bounded_string`, enum 맵핑)까지 포함한 **패치 템플릿**을 한 파일로 정리해 줄 수 있어. 우선 위 1–4번만 적용해도 라운드트립이 안정적으로 맞고, 이후 6–7번으로 견고함을 올리면 “새 IDL 추가 때 건들 범위”가 획기적으로 줄어든다.
+* 런타임 로그로 `type_name`과 `sample_to_json` 히트 여부부터 확인.
+* 히트인데도 비면 변환 람다 예외. 미스면 타입명 매핑 문제.
+* 둘 다 아니면 UI가 `display`를 소비하지 않는 프로토콜 불일치. 그 경우 EVT에 `data` 필드로도 동일 JSON을 중복 포함하도록 설계 변경 필요.

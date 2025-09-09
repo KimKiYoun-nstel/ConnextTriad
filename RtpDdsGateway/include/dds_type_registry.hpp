@@ -10,6 +10,7 @@
  *   - sample_factory.hpp (샘플 변환/생성)
  *   - type_registry.hpp (타입별 등록/헬퍼)
  */
+#include "../../DkmRtpIpc/include/triad_log.hpp"
 #include <any>
 #include <functional>
 #include <memory>
@@ -101,12 +102,13 @@ struct ReaderHolder : public IReaderHolder {
         std::string topic;
         explicit ForwardingReaderListener(SampleCallback cb_, std::string t) : cb(std::move(cb_)), topic(std::move(t)) {}
         void on_data_available(dds::sub::DataReader<T>& r) override {
+ //           LOG_DBG("DDS", "rx begin topic=%s type=%s", topic.c_str(), dds::topic::topic_type_name<T>::value());
             for (auto sample : r.take()) {
                 if (sample.info().valid()) {
-                    // 샘플 수신 시 콜백 호출 (타입명, 데이터 전달)
                     cb(topic, dds::topic::topic_type_name<T>::value(), AnyData(sample.data()));
                 }
             }
+            LOG_DBG("DDS", "rx end topic=%s", topic.c_str());
         }
     };
 

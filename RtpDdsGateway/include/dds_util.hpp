@@ -91,10 +91,10 @@ void read_time(const nlohmann::json& j, const char* key, P_LDM_Common::T_DateTim
 /**
  * @brief 식별자 필드(IdentifierType)를 JSON에 기록
  */
-void write_source_id(nlohmann::json& j, const P_LDM_Common::T_IdentifierType& sid);
+void write_source_id(nlohmann::json& j, const char* key, const P_LDM_Common::T_IdentifierType& sid);
 /**
  * @brief JSON에서 식별자 필드(IdentifierType) 읽기
  */
-void read_source_id(const nlohmann::json& j, P_LDM_Common::T_IdentifierType& sid);
+void read_source_id(const nlohmann::json& j, const char* key, P_LDM_Common::T_IdentifierType& sid);
 
 } // namespace rtpdds

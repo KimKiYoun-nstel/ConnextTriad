@@ -54,9 +54,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     cb.on_event = [this](const Header&, const uint8_t* body, uint32_t len) {
         try {
             auto j = nlohmann::json::from_cbor(std::vector<uint8_t>(body, body + len));
-            QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
-                                      Q_ARG(QString, QString("[EVT] %1").arg(QString::fromStdString(j.dump(2)))),
-                                      Q_ARG(bool, false));
+            QString topic = QString::fromStdString(j.value("topic", ""));
+            QString type = QString::fromStdString(j.value("type", ""));
+            bool display_present = j.contains("display") && !j["display"].is_null();
+            QString pretty_json_truncated = QString::fromStdString(j.dump(2));
+            if (pretty_json_truncated.size() > 2048) pretty_json_truncated = pretty_json_truncated.left(2048) + "...";
+            appendLog(QString("[EVT] topic=%1 type=%2 has_display=%3 json=%4")
+                .arg(topic).arg(type).arg(display_present).arg(pretty_json_truncated));
         } catch (...) {
             QMetaObject::invokeMethod(this, "appendLog", Qt::QueuedConnection,
                                       Q_ARG(QString, QString("[EVT] <CBOR parse error>")), Q_ARG(bool, false));
@@ -75,31 +79,22 @@ void MainWindow::setupUi()
     auto* w = new QWidget;
     setCentralWidget(w);
     auto* lay = new QVBoxLayout(w);
-        // DDS 엔티티 전체 초기화 버튼
-        btnClearDds_ = new QPushButton("Clear DDS Entities");
-        lay->addWidget(btnClearDds_);
 
-        // 버튼 시인성 개선: 공통 스타일 적용
-        const QString btnStyle =
-            "QPushButton {"
-            "  background-color: #e3eafc;"
-            "  border: 1.5px solid #90caf9;"
-            "  border-radius: 6px;"
-            "  padding: 6px 16px;"
-            "  font-weight: bold;"
-            "  color: #1a237e;"
-            "  box-shadow: 2px 2px 6px #b0bec5;"
-            "}"
-            "QPushButton:hover {"
-            "  background-color: #bbdefb;"
-            "  border: 2px solid #1976d2;"
-            "  color: #0d1335;"
-            "}";
-        QList<QPushButton*> btns = {btnConn_, btnPart_, btnPublisher_, btnSubscriber_, btnWriter_, btnReader_, btnPub_, btnClearDds_};
-        if (btnClearLog_) btns << btnClearLog_;
-        for (QPushButton* b : btns) {
-            if (b) b->setStyleSheet(btnStyle);
-        }
+    // 버튼 시인성 개선: 공통 스타일 적용
+    const QString btnStyle =
+        "QPushButton {"
+        "  background-color: #e3eafc;"
+        "  border: 1.5px solid #90caf9;"
+        "  border-radius: 6px;"
+        "  padding: 6px 16px;"
+        "  font-weight: bold;"
+        "  color: #1a237e;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #bbdefb;"
+        "  border: 2px solid #1976d2;"
+        "  color: #0d1335;"
+        "}";
 
     // 연결 영역
     auto* gbConn = new QGroupBox("Connection");
@@ -190,6 +185,11 @@ void MainWindow::setupUi()
     lg->addWidget(teLog_);
     lg->addWidget(btnClearLog_);
     lay->addWidget(gbLog);
+    
+    // DDS 엔티티 전체 초기화 버튼
+    btnClearDds_ = new QPushButton("Clear DDS Entities");
+    lay->addWidget(btnClearDds_);
+
 
     // 연결
     connect(btnConn_, &QPushButton::clicked, this, &MainWindow::onConnect);
@@ -212,6 +212,12 @@ void MainWindow::setupUi()
     });
     connect(btnClearDds_, &QPushButton::clicked, this, &MainWindow::onClearDdsEntities);
     connect(btnClearLog_, &QPushButton::clicked, this, &MainWindow::onClearLog);
+
+    QList<QPushButton*> btns = {btnConn_,   btnPart_,   btnPublisher_, btnSubscriber_, btnWriter_,
+                                btnReader_, btnPub_,  btnClearDds_,  btnClearLog_};
+    for (QPushButton* b : btns) {
+        if (b) b->setStyleSheet(btnStyle);
+    }
 
     statusBar()->showMessage("Ready");
 }
