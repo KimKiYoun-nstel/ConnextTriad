@@ -124,8 +124,6 @@ private:
     // 도메인/이름/토픽별 reader
     std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IReaderHolder> > > > readers_;
 
-    // 토픽별 리스너(콜백)
-    std::unordered_map<std::string, std::shared_ptr<void> > listeners_;
     // 샘플 수신 콜백
     SampleHandler on_sample_;
 

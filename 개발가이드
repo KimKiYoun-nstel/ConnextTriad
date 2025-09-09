@@ -1,138 +1,232 @@
-원인: 수신 EVT에 **실제 페이로드가 실리지 않음**. `ipc_adapter.cpp`에서 수신 콜백은 다음 형태로 EVT를 구성함:
+결론: **3곳만 추가/수정**하면 된다. ① RTI 내부 로그→네 LOG로 브릿지 ② Reader/Writer 상태 로그 리스너 부착 ③ 초기화 시 1회 호출.
+
+# 1) RTI Logger 브릿지 파일 추가
+
+## 새 파일: `RtpDdsGateway/include/rti_logger_bridge.hpp`
 
 ```cpp
-nlohmann::json evt = {
-  {"evt","data"},
-  {"topic", topic},
-  {"type", type_name},
-  {"display", display} // ← 변환된 요약만 담음
+#pragma once
+#include <rti/config/Logger.hpp>
+
+namespace rtpdds {
+void InitRtiLoggerToTriad();                              // 한 번만 호출
+void SetRtiLoggerVerbosity(rti::config::Verbosity v);     // 선택
+}
+```
+
+## 새 파일: `RtpDdsGateway/src/rti_logger_bridge.cpp`
+
+```cpp
+#include "rti_logger_bridge.hpp"
+#include "triad_log.hpp"          // LOG_ERR/LOG_WRN/LOG_INF/LOG_DBG
+using namespace rti::config;
+
+namespace {
+inline void forward_to_triad(const LogMessage& m) {
+    switch (m.level) {
+    case LogLevel::FATAL_ERROR:
+    case LogLevel::EXCEPTION:  LOG_ERR("RTI", "%s", m.text); break;
+    case LogLevel::WARNING:    LOG_WRN("RTI", "%s", m.text); break;
+    case LogLevel::STATUS_LOCAL:
+    case LogLevel::STATUS_REMOTE:
+    case LogLevel::STATUS_ALL: LOG_INF("RTI", "%s", m.text); break;
+    default:                   LOG_DBG("RTI", "%s", m.text); break;
+    }
+}
+}
+
+namespace rtpdds {
+void InitRtiLoggerToTriad() {
+    auto& lg = Logger::instance();
+    lg.print_format(PrintFormat::MAXIMAL);
+    lg.verbosity(Verbosity::warning);                     // 운영 기본
+    lg.output_handler([](const LogMessage& m){ forward_to_triad(m); });
+}
+void SetRtiLoggerVerbosity(Verbosity v) { Logger::instance().verbosity(v); }
+}
+```
+
+근거: Modern C++ 7.5.0 `rti::config::Logger::output_handler()`에 `LogMessage{level,text}`가 전달됨. `verbosity()`와 `print_format()`로 런타임 로깅 양과 포맷 제어. ([community.rti.com][1])
+
+# 2) Reader/Writer 상태 로그 리스너 부착
+
+리스너를 **타입 홀더 쪽**에서 보관하면 수명이 안전하다.
+
+## 수정: `RtpDdsGateway/include/dds_type_registry.hpp`
+
+1. 상단 include에 추가:
+
+```cpp
+#include <dds/core/status/StatusMask.hpp>
+```
+
+2. `ReaderHolder<T>` 내부에 “상태 로거” 리스너 추가(기존 ForwardingReaderListener는 그대로 둠):
+
+```cpp
+template <typename T>
+struct ReaderHolder : IReaderHolder {
+    std::shared_ptr<dds::sub::DataReader<T>> reader;
+    std::shared_ptr<void> status_logger_guard; // 수명 보관
+
+    // ... 기존 ForwardingReaderListener 그대로 ...
+
+    struct StatusLogListener : dds::sub::NoOpDataReaderListener<T> {
+        std::string topic_;
+        explicit StatusLogListener(std::string t): topic_(std::move(t)) {}
+        void on_subscription_matched(dds::sub::DataReader<T>&,
+            const dds::core::status::SubscriptionMatchedStatus& s) override {
+            LOG_INF("DDS", "sub_matched topic=%s cur=%d total=%d",
+                    topic_.c_str(), s.current_count(), s.total_count());
+        }
+        void on_requested_incompatible_qos(dds::sub::DataReader<T>&,
+            const dds::core::status::RequestedIncompatibleQosStatus& s) override {
+            LOG_WRN("DDS", "req_incompat_qos topic=%s id=%d",
+                    topic_.c_str(), s.last_policy_id().underlying());
+        }
+        void on_sample_lost(dds::sub::DataReader<T>&,
+            const dds::core::status::SampleLostStatus& s) override {
+            LOG_WRN("DDS", "sample_lost topic=%s total=%d",
+                    topic_.c_str(), s.total_count());
+        }
+    };
+
+    std::shared_ptr<void> attach_forwarding_listener(const std::string& topic, SampleCallback cb) override {
+        auto lis = std::make_shared<ForwardingReaderListener>(std::move(cb), topic);
+        reader->listener(lis.get(), dds::core::status::StatusMask::data_available());
+        return lis;
+    }
+
+    // 상태 로거 장착
+    void attach_status_logger(const std::string& topic) {
+        auto lis = std::make_shared<StatusLogListener>(topic);
+        reader->listener(lis.get(),
+            dds::core::status::StatusMask::subscription_matched()
+          | dds::core::status::StatusMask::requested_incompatible_qos()
+          | dds::core::status::StatusMask::sample_lost());
+        status_logger_guard = lis;
+    }
 };
 ```
 
-`display`는 `sample_to_json[type_name](data)`가 있을 때만 채워짐. 매핑이 없거나 변환에서 예외가 나면 코드가 `display = nullptr` 또는 의미 없는 `{"raw"}` 형태로 대체함. 따라서 UI는 “수신 이벤트”는 보지만 **내용은 비어 있음**.
+근거: Modern C++ `NoOpDataReaderListener<T>` 와 `StatusMask`로 이벤트 선택. ([community.rti.com][2])
 
-추가 가능성: `type_name` 불일치. 콜백에서 사용하는 `dds::topic::topic_type_name<T>::value()` 값이 `sample_to_json`의 키와 조금이라도 다르면 매핑 실패 → `display` 비어 있음.
+3. `WriterHolder<T>`에도 상태 로거 리스너 추가:
 
-증거:
+```cpp
+template <typename T>
+struct WriterHolder : IWriterHolder {
+    std::shared_ptr<dds::pub::DataWriter<T>> writer;
+    std::shared_ptr<void> status_logger_guard;
 
-* `ReaderHolder`가 콜백으로 넘기는 것은 `AnyData(sample.data())`이며 타입은 정상 유지.
-* `ipc_adapter.cpp`의 EVT 구성은 `display`만 포함. 원본 데이터나 안전한 기본 직렬화가 없음.
-* `sample_to_json`에 없는 타입이거나 변환 실패 시 `display`가 null/placeholder가 됨.
+    struct StatusLogListener : dds::pub::NoOpDataWriterListener<T> {
+        std::string topic_;
+        explicit StatusLogListener(std::string t): topic_(std::move(t)) {}
+        void on_publication_matched(dds::pub::DataWriter<T>&,
+            const dds::core::status::PublicationMatchedStatus& s) override {
+            LOG_INF("DDS", "pub_matched topic=%s cur=%d total=%d",
+                    topic_.c_str(), s.current_count(), s.total_count());
+        }
+        void on_offered_incompatible_qos(dds::pub::DataWriter<T>&,
+            const dds::core::status::OfferedIncompatibleQosStatus& s) override {
+            LOG_WRN("DDS", "offered_incompat_qos topic=%s id=%d",
+                    topic_.c_str(), s.last_policy_id().underlying());
+        }
+        void on_liveliness_lost(dds::pub::DataWriter<T>&,
+            const dds::core::status::LivelinessLostStatus& s) override {
+            LOG_WRN("DDS", "liveliness_lost topic=%s total=%d",
+                    topic_.c_str(), s.total_count());
+        }
+    };
 
-해결 방향 요약:
+    void attach_status_logger(const std::string& topic) {
+        auto lis = std::make_shared<StatusLogListener>(topic);
+        writer->listener(lis.get(),
+            dds::core::status::StatusMask::publication_matched()
+          | dds::core::status::StatusMask::offered_incompatible_qos()
+          | dds::core::status::StatusMask::liveliness_lost());
+        status_logger_guard = lis;
+    }
+};
+```
 
-* EVT에 `data` 또는 `payload`로 **원본 변환 결과**를 항상 포함. 매핑 없으면 최소한의 안전 직렬화(예: `StringMsg{text}`)라도 채움.
-* `type_name`을 표준화하거나, `topic_to_type_` 매핑을 사용해 `sample_to_json` 조회 키를 일치시킴.
+근거: Modern C++ `NoOpDataWriterListener<T>` 및 관련 상태. ([community.rti.com][3])
 
-로그 추가 제안(정확한 위치와 내용):
+4. `register_dds_type<T>()`의 팩토리 람다에서 **생성 직후 상태 로거를 장착**:
 
-1. `RtpDdsGateway/include/dds_type_registry.hpp`
+```cpp
+writer_factories[type_name] = [](dds::pub::Publisher& publisher, ITopicHolder& th) {
+    auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
+    if (!typed_topic) throw std::runtime_error("Topic type mismatch for Writer");
+    auto writer = std::make_shared<dds::pub::DataWriter<T>>(publisher, *(typed_topic->topic));
+    auto holder = std::make_shared<WriterHolder<T>>(writer);
+    holder->attach_status_logger(typed_topic->topic->name());
+    return holder;
+};
 
-* `ReaderHolder::ForwardingReaderListener::on_data_available`
+reader_factories[type_name] = [](dds::sub::Subscriber& subscriber, ITopicHolder& th) {
+    auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
+    if (!typed_topic) throw std::runtime_error("Topic type mismatch for Reader");
+    auto reader = std::make_shared<dds::sub::DataReader<T>>(subscriber, *(typed_topic->topic));
+    auto holder = std::make_shared<ReaderHolder<T>>(reader);
+    holder->attach_status_logger(typed_topic->topic->name());
+    return holder;
+};
+```
 
-  ```cpp
-  LOG_DBG("DDS", "rx begin topic=%s type=%s", topic.c_str(), dds::topic::topic_type_name<T>::value());
-  for (auto sample : r.take()) {
-      auto& info = sample.info();
-      LOG_DBG("DDS", "rx sample valid=%d inst=%lld ss=%d vs=%d is=%d ts=%ld",
-              info.valid(), (long long)info.instance_handle().value(),
-              (int)info.state().sample_state(), (int)info.state().view_state(),
-              (int)info.state().instance_state(),
-              (long)info.source_timestamp().to_microsecs());
-      if (info.valid()) {
-          // 그대로
-      }
-  }
-  LOG_DBG("DDS", "rx end topic=%s", topic.c_str());
-  ```
-* `WriterHolder::write_any` catch에서
+# 3) 초기화 지점에서 RTI Logger 1회 활성화
 
-  ```cpp
-  LOG_ERR("DDS", "any_cast fail type=%s what=%s",
-          dds::topic::topic_type_name<T>::value(), e.what());
-  ```
+## 수정: `RtpDdsGateway/src/main.cpp`
 
-2. `RtpDdsGateway/src/dds_manager.cpp`
+`GatewayApp app;` **앞**에 추가:
 
-* `create_reader(...)` 성공 직후
+```cpp
+#include "rti_logger_bridge.hpp"
 
-  ```cpp
-  LOG_INF("DDS", "reader ready domain=%d sub=%s topic=%s type=%s",
-          domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str());
-  ```
-* 리스너 장착 직후
+int main(int argc, char **argv) {
+    rtpdds::InitRtiLoggerToTriad();
+#ifndef NDEBUG
+    rtpdds::SetRtiLoggerVerbosity(rti::config::Verbosity::status_all); // 개발시
+#endif
+    using namespace rtpdds;
+    GatewayApp app;
+    // ...
+}
+```
 
-  ```cpp
-  LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
-  ```
-* `set_on_sample`에서 핸들러 설정 시
+# 4) 생성 요약 로그(선택, 이미 일부 있음)
 
-  ```cpp
-  LOG_DBG("DDS", "on_sample handler installed");
-  ```
+## `RtpDdsGateway/src/dds_manager.cpp`
 
-3. `RtpDdsGateway/src/ipc_adapter.cpp`
+* `DdsManager::create_participant(...)`에서 **participant 생성 직후**:
 
-* `mgr_.set_on_sample([...])` 람다의 시작부
+```cpp
+LOG_INF("DDS", "participant created domain=%d", domain_id);
+```
 
-  ```cpp
-  LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
-  ```
-* `sample_to_json` 조회 결과에 따라
+* `DdsManager::create_publisher(...)` / `create_subscriber(...)` / `create_topic(...)`에서도 동일 패턴으로 1줄 요약 남기기.
+* 필요하면 QoS 문자열 출력:
 
-  ```cpp
-  bool mapped = (it != sample_to_json.end());
-  LOG_DBG("IPC", "json mapper %s for type=%s", mapped?"hit":"miss", type_name.c_str());
-  ```
-* 변환 성공 시 요약 프리뷰(너무 길면 자름)
+```cpp
+#include <rti/core/QosPrintFormat.hpp>
+auto s = dds::sub::qos::to_string(reader.qos(), rti::core::qos_print_all);
+LOG_INF("DDS", "reader_qos=%s", s.c_str());
+```
 
-  ```cpp
-  auto s = display.dump();
-  if (s.size() > 256) s.resize(256);
-  LOG_DBG("IPC", "display json preview=%s", s.c_str());
-  ```
-* 변환 실패/예외 시
+근거: QoS를 문자열로 출력하는 Modern C++ 확장 API. ([community.rti.com][4])
 
-  ```cpp
-  LOG_WRN("IPC", "display build failed type=%s, fallback used", type_name.c_str());
-  ```
-* EVT 전송 직전
+# 5) 주의
 
-  ```cpp
-  LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d",
-          topic.c_str(), type_name.c_str(), !display.is_null());
-  ```
+* 가변 인자 로거에 **반드시 `c_str()`** 전달. 이미 코드 전반에서 적용되어 있음.
+* 리스너 콜백은 경량 로그만. 무거운 작업 금지.
+* RTI 로깅 콜백 내부에서 DDS 코어 호출 금지. 콜백은 메시지 포워딩만. ([community.rti.com][1])
 
-4. `RtpDdsGateway/src/sample_factory.cpp`
+이렇게 적용하면:
 
-* 각 변환 람다 내부 상단
+* RTI 내부 로그가 네 `LOG_XXX()`로 합류.
+* Reader/Writer의 매칭·QoS 불일치·손실 등 **DDS 처리 이벤트가 전부 로그**로 남는다.
+* 변경 파일과 위치는 위에 명시한 그대로면 충분하다.
 
-  ```cpp
-  LOG_DBG("SAMPLE", "to_json begin type=StringMsg");
-  ```
-* 예외 캐치 시
-
-  ```cpp
-  LOG_ERR("SAMPLE", "to_json error type=... msg=%s", e.what());
-  ```
-
-5. `ConnextControlUI/src/mainwindow.cpp`(수신 처리부)
-
-* EVT 수신 시 CBOR→JSON 파싱 성공 여부, `display` 존재 여부, 키 필드 출력
-
-  ```cpp
-  appendLog(QString("[EVT] topic=%1 type=%2 has_display=%3 json=%4")
-            .arg(topic).arg(type).arg(display_present).arg(pretty_json_truncated));
-  ```
-
-문제1의 직접적 원인 정리:
-
-* `ipc_adapter.cpp`의 EVT 포맷이 **`display`만** 싣고, 매핑 실패 시 **실제 데이터가 빠짐**.
-* `type_name` 키가 `sample_to_json`과 불일치하면 매핑 실패가 빈번.
-* 결과적으로 UI는 “수신 이벤트”만 보고 **내용은 못 받음**.
-
-즉시 점검 포인트:
-
-* 런타임 로그로 `type_name`과 `sample_to_json` 히트 여부부터 확인.
-* 히트인데도 비면 변환 람다 예외. 미스면 타입명 매핑 문제.
-* 둘 다 아니면 UI가 `display`를 소비하지 않는 프로토콜 불일치. 그 경우 EVT에 `data` 필드로도 동일 JSON을 중복 포함하도록 설계 변경 필요.
+[1]: https://community.rti.com/static/documentation/connext-dds/current///doc/api/connext_dds/api_cpp2/group__DDSLoggingModule.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: Logging"
+[2]: https://community.rti.com/static/documentation/connext-drive/2.0.0/doc/api/connext_dds/api_cpp2/classdds_1_1sub_1_1NoOpDataReaderListener.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::sub::NoOpDataReaderListener< T > Class Template Reference"
+[3]: https://community.rti.com/static/documentation/connext-dds/6.1.2/doc/api/connext_dds/api_cpp2/classdds_1_1pub_1_1NoOpDataWriterListener.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::pub::NoOpDataWriterListener< T > Class Template Reference"
+[4]: https://community.rti.com/static/documentation/connext-dds/current/doc/api/connext_dds/api_cpp2/classdds_1_1topic_1_1qos_1_1TopicQos.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::topic::qos::TopicQos Class Reference"

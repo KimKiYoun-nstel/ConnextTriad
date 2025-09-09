@@ -44,7 +44,6 @@ void DdsManager::clear_entities()
     subscribers_.clear();
     writers_.clear();
     readers_.clear();
-    listeners_.clear();
     topic_to_type_.clear();
     topics_.clear();
     // 필요시 추가 리소스도 clear
@@ -269,8 +268,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 
     // 타입 소거 리스너 부착 및 수명 유지
     if (on_sample_) {
-        auto guard = reader_holder->attach_forwarding_listener(topic, on_sample_);
-        listeners_[topic] = guard;
+        reader_holder->set_sample_callback(on_sample_);
     LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
     }
 

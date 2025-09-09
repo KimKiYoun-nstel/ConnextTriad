@@ -32,7 +32,6 @@ foreach(IDL_FILE ${IDL_FILES})
         OUTPUT ${CURRENT_GENERATED_FILES}
         COMMAND "${RTIDDSGEN}"
               -language ${RTIDDSGEN_LANG}
-              -platform x64Win64VS2017
               -d "${GEN_DIR}" "${IDL_FILE}"
         DEPENDS ${IDL_FILE}
         VERBATIM
