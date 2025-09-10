@@ -54,10 +54,12 @@ add_library(RtpDdsCore STATIC
   ${GENERATED_SOURCES}
 )
 
-target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
+target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party ${CMAKE_SOURCE_DIR}/common)
 
 # our headers + generated headers
 target_include_directories(RtpDdsCore PUBLIC include ${GEN_DIR})
+
+target_link_libraries(RtpDdsCore PUBLIC parser_config parser_client)
 
 # uses DkmRtpIpc headers in ipc_adapter.hpp
 target_link_libraries(RtpDdsCore PUBLIC DkmRtpIpc)
@@ -112,7 +114,15 @@ if(USE_CONNEXT)
 endif()
 
 add_executable(RtpDdsGateway src/main.cpp)
-target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32)
+target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32 parser_client)
+  
+# 파서 플러그인 동적/정적 링크 분기
+if(PARSER_LINK_MODE STREQUAL "dynamic")
+  add_custom_command(TARGET RtpDdsGateway POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:RtpDdsGateway>/parsers
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:ngva_parser_shared>
+            $<TARGET_FILE_DIR:RtpDdsGateway>/parsers/)
+endif()
 
 # copy QoS xml next to the exe
 add_custom_command(TARGET RtpDdsGateway POST_BUILD

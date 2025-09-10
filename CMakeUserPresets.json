@@ -9,7 +9,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_FLAGS": "-DQT_QML_DEBUG",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "PARSER_LINK_MODE": "dynamic"
       },
       "environment": {
         "QML_DEBUG_ARGS": "-qmljsdebugger=file:{a3202797-7b02-420f-94ce-881ecfb5b631},block"
@@ -22,7 +23,8 @@
       "toolchainFile": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_TARGET_TRIPLET": "x64-windows"
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "PARSER_LINK_MODE": "dynamic"
       }
     },
     {
@@ -56,7 +58,7 @@
   ],
   "vendor": {
     "qt-project.org/Presets": {
-      "checksum": "dY0BO5u7vxzsD322rGLygSu8Y2E="
+      "checksum": "yGH15aSYVRZS9dw0AjXdzU4hCr4="
     }
   }
 }

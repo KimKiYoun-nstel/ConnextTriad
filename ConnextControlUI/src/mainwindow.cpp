@@ -2,7 +2,9 @@
 #include "actual_alarm_dialog.hpp"
 
 #include <QtWidgets>
+
 #include <nlohmann/json.hpp>  // 수신 CBOR → JSON pretty 로그에 사용
+#include "parser_client.hpp"
 
 using dkmrtp::ipc::Endpoint;
 using dkmrtp::ipc::Header;
@@ -19,6 +21,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     cb.on_response = [this](const Header& h, const uint8_t* body, uint32_t len) {
         try {
             auto j = nlohmann::json::from_cbor(std::vector<uint8_t>(body, body + len));
+            // EVT 수신 표시부: display 역변환
+            if (j.is_object() && j.value("evt","")=="data" && j.contains("display")) {
+                const std::string type = j.value("type","");
+                std::string uo;
+                // 파서 실패 시 display는 변하지 않음(원본 그대로 사용됨, stub)
+                if (parser_to(type, j["display"].dump(), uo)) {
+                    auto parsed = nlohmann::json::parse(uo, nullptr, false);
+                    if (!parsed.is_discarded()) j["display"] = std::move(parsed);
+                }
+            }
             QString logLine;
             if (j.value("ok", false)) {
                 // 성공 응답: result/action 등 표시
@@ -454,13 +466,15 @@ void MainWindow::showActualAlarmDialogAndPublish() {
         // Publish 로직 직접 호출
         const std::string topic = "P_Alarms_PSM::C_Actual_Alarm";
         const std::string type  = "P_Alarms_PSM::C_Actual_Alarm";
-        const std::string text  = jsonStr.toStdString();
-
+        std::string text  = jsonStr.toStdString();
+        std::string out;
+        // 파서 실패 시 text는 변하지 않음(원본 그대로 사용됨, stub)
+        if (parser_from("P_Alarms_PSM::C_Actual_Alarm", text, out)) text.swap(out);
         triad::rpc::RpcBuilder rb;
         rb.set_op("write")
-          .set_target("writer", {{"topic", topic}, {"type", type}})
-          .data({{"text", text}})
-          .proto(1);
+            .set_target("writer", {{"topic", topic}, {"type", type}})
+            .data({{"text", text}})
+            .proto(1);
         send_req(rb);
     }
 }

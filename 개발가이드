@@ -1,232 +1,182 @@
-결론: **3곳만 추가/수정**하면 된다. ① RTI 내부 로그→네 LOG로 브릿지 ② Reader/Writer 상태 로그 리스너 부착 ③ 초기화 시 1회 호출.
+맞다. 아래 순서대로 반영하면 된다. VS 전환 방법은 제외했다.
 
-# 1) RTI Logger 브릿지 파일 추가
+# 1) 공용 래퍼 추가
 
-## 새 파일: `RtpDdsGateway/include/rti_logger_bridge.hpp`
+`common/parser_client.hpp` 신규:
 
 ```cpp
 #pragma once
-#include <rti/config/Logger.hpp>
+#include <string>
 
-namespace rtpdds {
-void InitRtiLoggerToTriad();                              // 한 번만 호출
-void SetRtiLoggerVerbosity(rti::config::Verbosity v);     // 선택
-}
-```
-
-## 새 파일: `RtpDdsGateway/src/rti_logger_bridge.cpp`
-
-```cpp
-#include "rti_logger_bridge.hpp"
-#include "triad_log.hpp"          // LOG_ERR/LOG_WRN/LOG_INF/LOG_DBG
-using namespace rti::config;
-
-namespace {
-inline void forward_to_triad(const LogMessage& m) {
-    switch (m.level) {
-    case LogLevel::FATAL_ERROR:
-    case LogLevel::EXCEPTION:  LOG_ERR("RTI", "%s", m.text); break;
-    case LogLevel::WARNING:    LOG_WRN("RTI", "%s", m.text); break;
-    case LogLevel::STATUS_LOCAL:
-    case LogLevel::STATUS_REMOTE:
-    case LogLevel::STATUS_ALL: LOG_INF("RTI", "%s", m.text); break;
-    default:                   LOG_DBG("RTI", "%s", m.text); break;
-    }
-}
-}
-
-namespace rtpdds {
-void InitRtiLoggerToTriad() {
-    auto& lg = Logger::instance();
-    lg.print_format(PrintFormat::MAXIMAL);
-    lg.verbosity(Verbosity::warning);                     // 운영 기본
-    lg.output_handler([](const LogMessage& m){ forward_to_triad(m); });
-}
-void SetRtiLoggerVerbosity(Verbosity v) { Logger::instance().verbosity(v); }
-}
-```
-
-근거: Modern C++ 7.5.0 `rti::config::Logger::output_handler()`에 `LogMessage{level,text}`가 전달됨. `verbosity()`와 `print_format()`로 런타임 로깅 양과 포맷 제어. ([community.rti.com][1])
-
-# 2) Reader/Writer 상태 로그 리스너 부착
-
-리스너를 **타입 홀더 쪽**에서 보관하면 수명이 안전하다.
-
-## 수정: `RtpDdsGateway/include/dds_type_registry.hpp`
-
-1. 상단 include에 추가:
-
-```cpp
-#include <dds/core/status/StatusMask.hpp>
-```
-
-2. `ReaderHolder<T>` 내부에 “상태 로거” 리스너 추가(기존 ForwardingReaderListener는 그대로 둠):
-
-```cpp
-template <typename T>
-struct ReaderHolder : IReaderHolder {
-    std::shared_ptr<dds::sub::DataReader<T>> reader;
-    std::shared_ptr<void> status_logger_guard; // 수명 보관
-
-    // ... 기존 ForwardingReaderListener 그대로 ...
-
-    struct StatusLogListener : dds::sub::NoOpDataReaderListener<T> {
-        std::string topic_;
-        explicit StatusLogListener(std::string t): topic_(std::move(t)) {}
-        void on_subscription_matched(dds::sub::DataReader<T>&,
-            const dds::core::status::SubscriptionMatchedStatus& s) override {
-            LOG_INF("DDS", "sub_matched topic=%s cur=%d total=%d",
-                    topic_.c_str(), s.current_count(), s.total_count());
-        }
-        void on_requested_incompatible_qos(dds::sub::DataReader<T>&,
-            const dds::core::status::RequestedIncompatibleQosStatus& s) override {
-            LOG_WRN("DDS", "req_incompat_qos topic=%s id=%d",
-                    topic_.c_str(), s.last_policy_id().underlying());
-        }
-        void on_sample_lost(dds::sub::DataReader<T>&,
-            const dds::core::status::SampleLostStatus& s) override {
-            LOG_WRN("DDS", "sample_lost topic=%s total=%d",
-                    topic_.c_str(), s.total_count());
-        }
-    };
-
-    std::shared_ptr<void> attach_forwarding_listener(const std::string& topic, SampleCallback cb) override {
-        auto lis = std::make_shared<ForwardingReaderListener>(std::move(cb), topic);
-        reader->listener(lis.get(), dds::core::status::StatusMask::data_available());
-        return lis;
-    }
-
-    // 상태 로거 장착
-    void attach_status_logger(const std::string& topic) {
-        auto lis = std::make_shared<StatusLogListener>(topic);
-        reader->listener(lis.get(),
-            dds::core::status::StatusMask::subscription_matched()
-          | dds::core::status::StatusMask::requested_incompatible_qos()
-          | dds::core::status::StatusMask::sample_lost());
-        status_logger_guard = lis;
-    }
-};
-```
-
-근거: Modern C++ `NoOpDataReaderListener<T>` 와 `StatusMask`로 이벤트 선택. ([community.rti.com][2])
-
-3. `WriterHolder<T>`에도 상태 로거 리스너 추가:
-
-```cpp
-template <typename T>
-struct WriterHolder : IWriterHolder {
-    std::shared_ptr<dds::pub::DataWriter<T>> writer;
-    std::shared_ptr<void> status_logger_guard;
-
-    struct StatusLogListener : dds::pub::NoOpDataWriterListener<T> {
-        std::string topic_;
-        explicit StatusLogListener(std::string t): topic_(std::move(t)) {}
-        void on_publication_matched(dds::pub::DataWriter<T>&,
-            const dds::core::status::PublicationMatchedStatus& s) override {
-            LOG_INF("DDS", "pub_matched topic=%s cur=%d total=%d",
-                    topic_.c_str(), s.current_count(), s.total_count());
-        }
-        void on_offered_incompatible_qos(dds::pub::DataWriter<T>&,
-            const dds::core::status::OfferedIncompatibleQosStatus& s) override {
-            LOG_WRN("DDS", "offered_incompat_qos topic=%s id=%d",
-                    topic_.c_str(), s.last_policy_id().underlying());
-        }
-        void on_liveliness_lost(dds::pub::DataWriter<T>&,
-            const dds::core::status::LivelinessLostStatus& s) override {
-            LOG_WRN("DDS", "liveliness_lost topic=%s total=%d",
-                    topic_.c_str(), s.total_count());
-        }
-    };
-
-    void attach_status_logger(const std::string& topic) {
-        auto lis = std::make_shared<StatusLogListener>(topic);
-        writer->listener(lis.get(),
-            dds::core::status::StatusMask::publication_matched()
-          | dds::core::status::StatusMask::offered_incompatible_qos()
-          | dds::core::status::StatusMask::liveliness_lost());
-        status_logger_guard = lis;
-    }
-};
-```
-
-근거: Modern C++ `NoOpDataWriterListener<T>` 및 관련 상태. ([community.rti.com][3])
-
-4. `register_dds_type<T>()`의 팩토리 람다에서 **생성 직후 상태 로거를 장착**:
-
-```cpp
-writer_factories[type_name] = [](dds::pub::Publisher& publisher, ITopicHolder& th) {
-    auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
-    if (!typed_topic) throw std::runtime_error("Topic type mismatch for Writer");
-    auto writer = std::make_shared<dds::pub::DataWriter<T>>(publisher, *(typed_topic->topic));
-    auto holder = std::make_shared<WriterHolder<T>>(writer);
-    holder->attach_status_logger(typed_topic->topic->name());
-    return holder;
-};
-
-reader_factories[type_name] = [](dds::sub::Subscriber& subscriber, ITopicHolder& th) {
-    auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
-    if (!typed_topic) throw std::runtime_error("Topic type mismatch for Reader");
-    auto reader = std::make_shared<dds::sub::DataReader<T>>(subscriber, *(typed_topic->topic));
-    auto holder = std::make_shared<ReaderHolder<T>>(reader);
-    holder->attach_status_logger(typed_topic->topic->name());
-    return holder;
-};
-```
-
-# 3) 초기화 지점에서 RTI Logger 1회 활성화
-
-## 수정: `RtpDdsGateway/src/main.cpp`
-
-`GatewayApp app;` **앞**에 추가:
-
-```cpp
-#include "rti_logger_bridge.hpp"
-
-int main(int argc, char **argv) {
-    rtpdds::InitRtiLoggerToTriad();
-#ifndef NDEBUG
-    rtpdds::SetRtiLoggerVerbosity(rti::config::Verbosity::status_all); // 개발시
+#ifdef PARSER_LINK_STATIC
+  // 정적 링크 경로: DLL 로더 불필요
+  #include "parser_plugin.h"
+  inline bool parser_from(const std::string& type, const std::string& in, std::string& out){
+    size_t need=0; if(!parser_from_json(type.c_str(), in.c_str(), nullptr, &need) || need==0) return false;
+    out.resize(need); return parser_from_json(type.c_str(), in.c_str(), out.data(), &need);
+  }
+  inline bool parser_to(const std::string& type, const std::string& in, std::string& out){
+    size_t need=0; if(!parser_to_json(type.c_str(), in.c_str(), nullptr, &need) || need==0) return false;
+    out.resize(need); return parser_to_json(type.c_str(), in.c_str(), out.data(), &need);
+  }
+#else
+  // 동적 로딩 경로
+  #include "parser_loader.hpp"
+  inline Parser& _parser_singleton(){ static Parser p = load_parser("./parsers/ngva_parser.dll"); return p; }
+  inline bool parser_from(const std::string& type, const std::string& in, std::string& out){
+    auto& p=_parser_singleton(); return p.ok() && call_from(p, type, in, out);
+  }
+  inline bool parser_to(const std::string& type, const std::string& in, std::string& out){
+    auto& p=_parser_singleton(); return p.ok() && call_to(p, type, in, out);
+  }
 #endif
-    using namespace rtpdds;
-    GatewayApp app;
-    // ...
-}
 ```
 
-# 4) 생성 요약 로그(선택, 이미 일부 있음)
+# 2) 루트 CMake 단일 스위치
 
-## `RtpDdsGateway/src/dds_manager.cpp`
+`CMakeLists.txt`(루트) 상단에 추가:
 
-* `DdsManager::create_participant(...)`에서 **participant 생성 직후**:
+```cmake
+# 단일 스위치: dynamic | static
+set(PARSER_LINK_MODE "dynamic" CACHE STRING "dynamic or static")
+string(TOLOWER "${PARSER_LINK_MODE}" _PARSER_LINK_MODE)
+if(NOT _PARSER_LINK_MODE STREQUAL "dynamic" AND NOT _PARSER_LINK_MODE STREQUAL "static")
+  message(FATAL_ERROR "PARSER_LINK_MODE must be dynamic or static")
+endif()
+message(STATUS "PARSER_LINK_MODE=${_PARSER_LINK_MODE}")
 
-```cpp
-LOG_INF("DDS", "participant created domain=%d", domain_id);
+# 코드 매크로 전달용 인터페이스 타깃
+add_library(parser_config INTERFACE)
+if(_PARSER_LINK_MODE STREQUAL "static")
+  target_compile_definitions(parser_config INTERFACE PARSER_LINK_STATIC=1)
+endif()
+
+# 기존 서브디렉터리
+add_subdirectory(common)
+add_subdirectory(parsers/ngva)
+add_subdirectory(RtpDdsGateway)
+add_subdirectory(ConnextControlUI)
 ```
 
-* `DdsManager::create_publisher(...)` / `create_subscriber(...)` / `create_topic(...)`에서도 동일 패턴으로 1줄 요약 남기기.
-* 필요하면 QoS 문자열 출력:
+# 3) 파서 라이브러리 CMake 연동
 
-```cpp
-#include <rti/core/QosPrintFormat.hpp>
-auto s = dds::sub::qos::to_string(reader.qos(), rti::core::qos_print_all);
-LOG_INF("DDS", "reader_qos=%s", s.c_str());
+`parsers/ngva/CMakeLists.txt`에 `parser_config` 연결:
+
+```cmake
+# ... (코드 생성 커맨드는 기존대로)
+
+add_library(parser_core_obj OBJECT
+  src/parser_core.cpp
+  ${GEN_DIR}/parser_core_gen.cpp
+)
+target_include_directories(parser_core_obj PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include ${GEN_DIR})
+target_link_libraries(parser_core_obj PUBLIC parser_config)  # <- 매크로 전파
+
+add_library(ngva_parser_shared SHARED $<TARGET_OBJECTS:parser_core_obj> src/exports.cpp)
+set_target_properties(ngva_parser_shared PROPERTIES OUTPUT_NAME "ngva_parser")
+target_include_directories(ngva_parser_shared PUBLIC ${CMAKE_SOURCE_DIR}/common)
+
+add_library(ngva_parser_static STATIC $<TARGET_OBJECTS:parser_core_obj> src/exports.cpp)
+set_target_properties(ngva_parser_static PROPERTIES OUTPUT_NAME "ngva_parser")
+target_include_directories(ngva_parser_static PUBLIC ${CMAKE_SOURCE_DIR}/common)
 ```
 
-근거: QoS를 문자열로 출력하는 Modern C++ 확장 API. ([community.rti.com][4])
+# 4) UI CMake 분기
 
-# 5) 주의
+`ConnextControlUI/CMakeLists.txt`:
 
-* 가변 인자 로거에 **반드시 `c_str()`** 전달. 이미 코드 전반에서 적용되어 있음.
-* 리스너 콜백은 경량 로그만. 무거운 작업 금지.
-* RTI 로깅 콜백 내부에서 DDS 코어 호출 금지. 콜백은 메시지 포워딩만. ([community.rti.com][1])
+```cmake
+target_link_libraries(ConnextControlUI PRIVATE parser_config)
 
-이렇게 적용하면:
+if(PARSER_LINK_MODE STREQUAL "dynamic")
+  target_link_libraries(ConnextControlUI PRIVATE parser_loader)
+  add_custom_command(TARGET ConnextControlUI POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:ConnextControlUI>/parsers
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:ngva_parser_shared>
+            $<TARGET_FILE_DIR:ConnextControlUI>/parsers/)
+else()
+  target_link_libraries(ConnextControlUI PRIVATE ngva_parser_static)
+endif()
+```
 
-* RTI 내부 로그가 네 `LOG_XXX()`로 합류.
-* Reader/Writer의 매칭·QoS 불일치·손실 등 **DDS 처리 이벤트가 전부 로그**로 남는다.
-* 변경 파일과 위치는 위에 명시한 그대로면 충분하다.
+# 5) Gateway CMake 분기
 
-[1]: https://community.rti.com/static/documentation/connext-dds/current///doc/api/connext_dds/api_cpp2/group__DDSLoggingModule.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: Logging"
-[2]: https://community.rti.com/static/documentation/connext-drive/2.0.0/doc/api/connext_dds/api_cpp2/classdds_1_1sub_1_1NoOpDataReaderListener.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::sub::NoOpDataReaderListener< T > Class Template Reference"
-[3]: https://community.rti.com/static/documentation/connext-dds/6.1.2/doc/api/connext_dds/api_cpp2/classdds_1_1pub_1_1NoOpDataWriterListener.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::pub::NoOpDataWriterListener< T > Class Template Reference"
-[4]: https://community.rti.com/static/documentation/connext-dds/current/doc/api/connext_dds/api_cpp2/classdds_1_1topic_1_1qos_1_1TopicQos.html?utm_source=chatgpt.com "RTI Connext Modern C++ API: dds::topic::qos::TopicQos Class Reference"
+`RtpDdsGateway/CMakeLists.txt`:
+
+```cmake
+target_link_libraries(RtpDdsGateway PRIVATE parser_config)
+
+if(PARSER_LINK_MODE STREQUAL "dynamic")
+  target_link_libraries(RtpDdsGateway PRIVATE parser_loader)
+  add_custom_command(TARGET RtpDdsGateway POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:RtpDdsGateway>/parsers
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:ngva_parser_shared>
+            $<TARGET_FILE_DIR:RtpDdsGateway>/parsers/)
+else()
+  target_link_libraries(RtpDdsGateway PRIVATE ngva_parser_static)
+endif()
+```
+
+# 6) 사용 코드 교체
+
+두 파일에서 동일하게 적용.
+
+## UI: `ConnextControlUI/src/mainwindow.cpp`
+
+* 교체:
+
+  ```cpp
+  // #include "parser_loader.hpp"  // 제거
+  #include "parser_client.hpp"     // 추가
+  ```
+* 전송 전:
+
+  ```cpp
+  std::string out;
+  if (parser_from("P_Alarms_PSM::C_Actual_Alarm", text, out)) text.swap(out);
+  ```
+* EVT 표시 전:
+
+  ```cpp
+  std::string uo;
+  if (parser_to(type, display.dump(), uo)) display = nlohmann::json::parse(uo, nullptr, false);
+  ```
+
+## Gateway: `RtpDdsGateway/src/ipc_adapter.cpp`
+
+* 교체:
+
+  ```cpp
+  // #include "parser_loader.hpp"  // 제거
+  #include "parser_client.hpp"     // 추가
+  ```
+* `op=="write"` 처리에서 publish 직전:
+
+  ```cpp
+  std::string canon;
+  if (parser_from(type, text, canon)) text.swap(canon);
+  ```
+* `set_on_sample` 람다에서 `display` 생성 후:
+
+  ```cpp
+  std::string uo;
+  if (parser_to(type_name, display.dump(), uo)) {
+      auto p = nlohmann::json::parse(uo, nullptr, false);
+      if (!p.is_discarded()) display = std::move(p);
+  }
+  ```
+
+# 7) 산출물 배치 확인(동적 모드만)
+
+* 빌드 후 `ConnextControlUI/…/parsers/ngva_parser.dll`
+* 빌드 후 `RtpDdsGateway/…/parsers/ngva_parser.dll`
+
+# 8) 체크리스트
+
+* `common/parser_client.hpp`가 두 타깃 모두에서 포함되는지.
+* 루트에서 `parser_config`가 먼저 정의되는지.
+* 한 모드만 링크되도록 CMake 분기가 중복되지 않는지.
+* 동적 모드에서 `parser_loader` 링크 누락이 없는지.
+* 정적 모드에서 `ngva_parser_static` 링크 누락이 없는지.
+
+이대로면 하나의 스위치(`PARSER_LINK_MODE`)로 CMake와 소스가 동시에 분기된다.

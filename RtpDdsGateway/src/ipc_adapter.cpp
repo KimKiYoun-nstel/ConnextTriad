@@ -12,7 +12,9 @@
 #include "triad_log.hpp"
 #include "sample_factory.hpp"
 
+
 #include <nlohmann/json.hpp>
+#include "parser_client.hpp"
 
 namespace rtpdds
 {
@@ -214,6 +216,13 @@ void IpcAdapter::install_callbacks()
                     LOG_ERR("IPC", "publish_text failed: missing topic tag");
                     rsp = {{"ok", false}, {"err", 6}, {"msg", "Missing topic tag"}};
                 } else {
+                    // 파서 변환 (UI JSON → IDL 정규 JSON)
+                    std::string type = mgr_.get_type_for_topic(topic);
+                    if (!type.empty()) {
+                        std::string canon;
+                        // 파서 실패 시 text는 변하지 않음(원본 그대로 사용됨, stub)
+                        if (parser_from(type, text, canon)) text.swap(canon);
+                    }
                     LOG_DBG("IPC", "Calling DdsManager::publish_text(topic=%s, text=%s)", topic.c_str(), text.c_str());
                     DdsResult res = mgr_.publish_text(topic, text);
                     if (res.ok) {
@@ -276,6 +285,13 @@ void IpcAdapter::install_callbacks()
         } else {
             display = nullptr;
             data_json = nlohmann::json();
+        }
+        // 파서 역변환 (IDL 정규 JSON → UI JSON)
+        std::string uo;
+        // 파서 실패 시 display는 변하지 않음(원본 그대로 사용됨, stub)
+        if (parser_to(type_name, display.dump(), uo)) {
+            auto parsed = nlohmann::json::parse(uo, nullptr, false);
+            if (!parsed.is_discarded()) display = std::move(parsed);
         }
         nlohmann::json evt = { {"evt", "data"}, {"topic", topic}, {"type", type_name}, {"display", display}, {"data", data_json} };
         LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d", topic.c_str(), type_name.c_str(), !display.is_null());

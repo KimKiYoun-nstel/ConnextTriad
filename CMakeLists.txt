@@ -23,6 +23,25 @@ endif()
 
 find_package(nlohmann_json CONFIG REQUIRED)
 
+
+# 단일 스위치: dynamic | static
+set(PARSER_LINK_MODE "dynamic" CACHE STRING "dynamic or static")
+string(TOLOWER "${PARSER_LINK_MODE}" _PARSER_LINK_MODE)
+if(NOT _PARSER_LINK_MODE STREQUAL "dynamic" AND NOT _PARSER_LINK_MODE STREQUAL "static")
+  message(FATAL_ERROR "PARSER_LINK_MODE must be dynamic or static")
+endif()
+message(STATUS "PARSER_LINK_MODE=${_PARSER_LINK_MODE}")
+
+# 코드 매크로 전달용 인터페이스 타깃
+add_library(parser_config INTERFACE)
+if(_PARSER_LINK_MODE STREQUAL "static")
+  target_compile_definitions(parser_config INTERFACE PARSER_LINK_STATIC=1)
+endif()
+
+# 파서 플러그인 옵션 및 서브디렉토리 추가
+add_subdirectory(common)
+add_subdirectory(parsers/ngva)
+
 add_subdirectory(DkmRtpIpc)
 add_subdirectory(RtpDdsGateway)
 add_subdirectory(ConnextControlUI)

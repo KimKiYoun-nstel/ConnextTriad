@@ -112,6 +112,16 @@ public:
      */
     void set_on_sample(SampleHandler cb);
 
+    /**
+     * @brief 토픽명으로 타입명을 조회합니다.
+     * @param topic 토픽명
+     * @return 타입명(없으면 빈 문자열)
+     */
+    std::string get_type_for_topic(const std::string& topic) const {
+        auto it = topic_to_type_.find(topic);
+        return (it != topic_to_type_.end()) ? it->second : "";
+    }
+
 private:
     // 도메인ID별 participant
     std::unordered_map<int, std::shared_ptr<dds::domain::DomainParticipant> > participants_;
