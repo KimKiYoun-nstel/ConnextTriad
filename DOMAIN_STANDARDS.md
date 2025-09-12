@@ -26,4 +26,3 @@
 ## 버전 관리 및 빌드
 
 - `NDDSHOME` 환경변수 필수, CMake가 `RTI_LIB_DIR`(VS2017/2019/2022 버전)을 자동 감지 후 `nddscpp`, `nddsc`, `nddscore`를 링크
-- Connext로 빌드하려면 `USE_CONNEXT`를 정의, 아니면 스텁 동작

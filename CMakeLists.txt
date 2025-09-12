@@ -6,14 +6,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # USE_CONNEXT auto-on if NDDSHOME present
-set(USE_CONNEXT OFF)
+
+# NDDSHOME 경로 출력 (항상 출력)
 if(DEFINED ENV{NDDSHOME})
   message(STATUS "NDDSHOME detected: $ENV{NDDSHOME}")
-  set(USE_CONNEXT ON)
 endif()
-
-# USE_CONNEXT 옵션 기본값 명시
-option(USE_CONNEXT "Build with RTI Connext DDS" ${USE_CONNEXT})
 
 if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8 /EHsc)

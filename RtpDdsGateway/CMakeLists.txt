@@ -64,54 +64,49 @@ target_link_libraries(RtpDdsCore PUBLIC parser_config parser_client)
 # uses DkmRtpIpc headers in ipc_adapter.hpp
 target_link_libraries(RtpDdsCore PUBLIC DkmRtpIpc)
 
-# switch by USE_CONNEXT
-target_compile_definitions(RtpDdsCore PUBLIC $<$<BOOL:${USE_CONNEXT}>:USE_CONNEXT>)
 
-if(USE_CONNEXT)
-  # RTI headers (Modern C++11)
-  target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp")
+# RTI headers (Modern C++11)
+target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp")
 
-
-  # --- Auto-detect RTI lib dir (prefer x64Win64VS2017) ---
-  if(NOT DEFINED RTI_LIB_DIR)
-    set(_rti_candidates
-      "$ENV{NDDSHOME}/lib/x64Win64VS2017"
-      "$ENV{NDDSHOME}/lib/x64Win64VS2019"
-      "$ENV{NDDSHOME}/lib/x64Win64VS2022"
-      "$ENV{NDDSHOME}/lib/x64Win64"
-    )
-    foreach(d ${_rti_candidates})
-      if(EXISTS "${d}")
-        set(RTI_LIB_DIR "${d}")
-        break()
-      endif()
-    endforeach()
-  endif()
-
-  # if empty or not found, fail with a clear message
-  if(NOT RTI_LIB_DIR)
-    message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR=<path> or verify NDDSHOME.")
-  endif()
-
-  message(STATUS "Using RTI_LIB_DIR=${RTI_LIB_DIR}")
-  target_link_directories(RtpDdsCore PUBLIC "${RTI_LIB_DIR}")
-
-  target_compile_definitions(RtpDdsCore PUBLIC NDDS_DLL_VARIABLE)
-
-  # --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
-  if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
-    set(RTI_LIBS_DEBUG nddscpp2d nddscd nddscored)
-  else()
-    message(WARNING "RTI debug C++11 libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
-    set(RTI_LIBS_DEBUG nddscpp2 nddsc nddscore)
-  endif()
-
-  # Modern C++11 API libs
-  target_link_libraries(RtpDdsCore PUBLIC
-    $<$<CONFIG:Debug>:${RTI_LIBS_DEBUG}>
-    $<$<NOT:$<CONFIG:Debug>>:nddscpp2;nddsc;nddscore>
+# --- Auto-detect RTI lib dir (prefer x64Win64VS2017) ---
+if(NOT DEFINED RTI_LIB_DIR)
+  set(_rti_candidates
+    "$ENV{NDDSHOME}/lib/x64Win64VS2017"
+    "$ENV{NDDSHOME}/lib/x64Win64VS2019"
+    "$ENV{NDDSHOME}/lib/x64Win64VS2022"
+    "$ENV{NDDSHOME}/lib/x64Win64"
   )
+  foreach(d ${_rti_candidates})
+    if(EXISTS "${d}")
+      set(RTI_LIB_DIR "${d}")
+      break()
+    endif()
+  endforeach()
 endif()
+
+# if empty or not found, fail with a clear message
+if(NOT RTI_LIB_DIR)
+  message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR=<path> or verify NDDSHOME.")
+endif()
+
+message(STATUS "Using RTI_LIB_DIR=${RTI_LIB_DIR}")
+target_link_directories(RtpDdsCore PUBLIC "${RTI_LIB_DIR}")
+
+target_compile_definitions(RtpDdsCore PUBLIC NDDS_DLL_VARIABLE)
+
+# --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
+if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
+  set(RTI_LIBS_DEBUG nddscpp2d nddscd nddscored)
+else()
+  message(WARNING "RTI debug C++11 libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
+  set(RTI_LIBS_DEBUG nddscpp2 nddsc nddscore)
+endif()
+
+# Modern C++11 API libs
+target_link_libraries(RtpDdsCore PUBLIC
+  $<$<CONFIG:Debug>:${RTI_LIBS_DEBUG}>
+  $<$<NOT:$<CONFIG:Debug>>:nddscpp2;nddsc;nddscore>
+)
 
 add_executable(RtpDdsGateway src/main.cpp)
 target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32 parser_client)
