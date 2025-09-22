@@ -35,6 +35,7 @@ module P_Alarms_PSM
    };
 
    // Represents the crew role in a particular Mission state. e.g : Commander/Gunner/Driver/ Maintainer
+   @topic
    struct C_Crew_Role_In_Mission_State
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -45,6 +46,7 @@ module P_Alarms_PSM
    };
 
    // Provides the data to for an Alarm based on category and mitigating effects of crew role, mission state and hierarchy.
+   @topic
    struct C_Alarm_Category_Specification
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -62,6 +64,7 @@ module P_Alarms_PSM
    };
 
    // Sets the mission state of the Platform.
+   @topic
    struct C_Mission_State_setMissionState
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -73,6 +76,7 @@ module P_Alarms_PSM
    };
 
    // Defines the possible mission states of the platform (e.g. driving, engagement, reconnaissance)
+   @topic
    struct C_Mission_State
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -83,6 +87,7 @@ module P_Alarms_PSM
       P_LDM_Common::T_IdentifierType A_ownPlatform_sourceID;
    };
 
+   @topic
    struct C_Actual_Alarm_acknowledgeAlarm
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -96,6 +101,7 @@ module P_Alarms_PSM
    };
 
    // Represents an Alarm raised as a result of an Alarm condition.
+   @topic
    struct C_Actual_Alarm
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -111,6 +117,7 @@ module P_Alarms_PSM
    };
 
    // Causes an Alarm condition to be raised.
+   @topic
    struct C_Alarm_Condition_Specification_raiseAlarmCondition
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -124,6 +131,7 @@ module P_Alarms_PSM
    };
 
    // Identifies Alarm conditions that are of interest to a particular crew role.
+   @topic
    struct C_Alarm_Condition_Specification_isOfInterestToCrewRole
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -136,6 +144,7 @@ module P_Alarms_PSM
    // Represents the specification of a possible Alarm condition. 
    // 
    // 
+   @topic
    struct C_Alarm_Condition_Specification
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -154,6 +163,7 @@ module P_Alarms_PSM
    };
 
    // Represents the description of the audio tone to be applied to a specific Alarm category.
+   @topic
    struct C_Tone_Specification
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -166,6 +176,7 @@ module P_Alarms_PSM
    };
 
    // Represents the platform for which Alarms are raised.
+   @topic
    struct C_Own_Platform
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -175,6 +186,7 @@ module P_Alarms_PSM
    };
 
    // Causes the Alarm condition to be changed from being overridden to not overridden.
+   @topic
    struct C_Actual_Alarm_Condition_unoverrideAlarmCondition
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -188,6 +200,7 @@ module P_Alarms_PSM
    };
 
    // Causes the Alarm condition to be overridden.
+   @topic
    struct C_Actual_Alarm_Condition_overrideAlarmCondition
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -201,6 +214,7 @@ module P_Alarms_PSM
    };
 
    // The identity of an instance of the Alarm Condition.
+   @topic
    struct C_Actual_Alarm_Condition_clearAlarmCondition
    {
       P_LDM_Common::T_IdentifierType A_recipientID; //@key
@@ -214,6 +228,7 @@ module P_Alarms_PSM
    };
 
    // Represents the condition that has caused an Alarm to be raised.
+   @topic
    struct C_Actual_Alarm_Condition
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
@@ -225,6 +240,7 @@ module P_Alarms_PSM
       P_LDM_Common::T_IdentifierType A_raisedActualAlarm_sourceID;
    };
 
+   @topic
    struct C_Alarm_Category
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key

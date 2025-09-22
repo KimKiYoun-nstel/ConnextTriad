@@ -1,4 +1,5 @@
-struct AlarmMsg {
+@topic
+struct C_AlarmMsg {
     long level;
     string text;
 };

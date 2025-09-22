@@ -15,51 +15,17 @@
 #include <any>
 #include <functional>
 #include <memory>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <unordered_map>
-#include <nlohmann/json.hpp>
-
-// 코드젠 헤더 (토픽/타입 선언 용)
-#include "StringMsg.hpp"
-#include "AlarmMsg.hpp"
-#include "Alarms_PSM.hpp"
 
 namespace rtpdds {
-	/**
-	* @brief 타입 소거된 ‘샘플(데이터 1건)’
-	* AnyData로 관리하여 런타임에 다양한 타입을 동적으로 처리
-	*/
-	using AnyData = std::any;
-
-	/**
-	* @brief payload(텍스트/JSON 등) → AnyData 생성 함수 타입
-	* @param payload 텍스트/JSON 등 입력
-	* @return AnyData(실제 샘플)
-	*/
-	using SampleFactory = std::function<AnyData(const std::string& payload)>;
-	/**
-	* @brief 토픽명 → 샘플 생성 함수 매핑 테이블
-	* 신규 타입 추가 시 여기에 등록
-	*/
-	extern std::unordered_map<std::string, SampleFactory> sample_factories;
-	/**
-	* @brief 샘플 생성 함수 테이블 초기화
-	*/
-	void init_sample_factories();
-
-	/**
-	* @brief AnyData → JSON 변환 함수 타입
-	* @param AnyData(실제 샘플)
-	* @return nlohmann::json 변환 결과
-	*/
-	using SampleToJson = std::function<nlohmann::json(const AnyData&)>;
-	/**
-	* @brief 토픽명 → 샘플→JSON 변환 함수 매핑 테이블
-	* 신규 타입 추가 시 여기에 등록
-	*/
-	extern std::unordered_map<std::string, SampleToJson> sample_to_json;
-	/**
-	* @brief 샘플→JSON 변환 함수 테이블 초기화
-	*/
-	void init_sample_to_json();
-} // namespace rtpdds
+	void* create_sample(const std::string& type_name);
+	void  destroy_sample(const std::string& type_name, void* p);
+	bool  json_to_dds(const nlohmann::json& j,
+							const std::string& type_name,
+							void* sample);
+	bool  dds_to_json(const std::string& type_name,
+							const void* sample,
+							nlohmann::json& out);
+}

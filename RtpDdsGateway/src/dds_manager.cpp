@@ -17,15 +17,10 @@
 #include "triad_log.hpp"
 #include "sample_factory.hpp"
 
-namespace rtpdds
-{
+namespace rtpdds {
 DdsManager::DdsManager()
 {
-    // 타입 레지스트리 및 샘플/JSON 변환 테이블 초기화
-    // (신규 타입/토픽 추가 시 이 함수들에 등록 필요)
     init_dds_type_registry();
-    init_sample_factories();
-    init_sample_to_json();
 }
 
 DdsManager::~DdsManager()
@@ -166,14 +161,10 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
         if (!res.ok) return DdsResult(false, res.category, "Publisher creation failed: " + res.reason);
     }
 
-    // type_name 유효성 체크 (등록 여부)
-    if (topic_factories.find(type_name) == topic_factories.end()) {
+    const auto& reg = idlmeta::type_registry();
+    if (reg.find(type_name) == reg.end()) {
         LOG_ERR("DDS", "create_writer: unknown DDS type: %s", type_name.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "Unknown DDS type: " + type_name);
-    }
-    if (writer_factories.find(type_name) == writer_factories.end()) {
-        LOG_ERR("DDS", "create_writer: no writer factory for DDS type: %s", type_name.c_str());
-        return DdsResult(false, DdsErrorCategory::Logic, "No writer factory for DDS type: " + type_name);
     }
 
     auto& participant = participants_[domain_id];
@@ -234,14 +225,10 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
         if (!res.ok) return DdsResult(false, res.category, "Subscriber creation failed: " + res.reason);
     }
 
-    // type_name 유효성 체크 (등록 여부)
-    if (topic_factories.find(type_name) == topic_factories.end()) {
-        LOG_ERR("DDS", "create_reader: unknown DDS type: %s", type_name.c_str());
+    const auto& reg = idlmeta::type_registry();
+    if (reg.find(type_name) == reg.end()) {
+        LOG_ERR("DDS", "create_writer: unknown DDS type: %s", type_name.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "Unknown DDS type: " + type_name);
-    }
-    if (reader_factories.find(type_name) == reader_factories.end()) {
-        LOG_ERR("DDS", "create_reader: no reader factory for DDS type: %s", type_name.c_str());
-        return DdsResult(false, DdsErrorCategory::Logic, "No reader factory for DDS type: " + type_name);
     }
 
     auto& participant = participants_[domain_id];
@@ -304,18 +291,22 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
                     continue;
                 }
                 type_name = type_it->second;
-                // 샘플 생성: type string 기반 type-erased 함수 사용
-                auto sample_factory_it = sample_factories.find(type_name);
-                if (sample_factory_it == sample_factories.end()) {
-                    LOG_ERR("DDS", "publish_text: sample_factory not found for type=%s", type_name.c_str());
-                    continue;
-                }
-                auto sample = sample_factory_it->second(text);
-                if (!sample.has_value()) {
+                // 샘플 생성: rtpdds API 사용
+                void* sample = rtpdds::create_sample(type_name);
+                if (!sample) {
                     LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
                     continue;
                 }
+                // JSON → DDS 매핑
+                nlohmann::json j;
+                try { j = nlohmann::json::parse(text); } catch (...) { LOG_ERR("DDS", "publish_text: invalid JSON"); rtpdds::destroy_sample(type_name, sample); continue; }
+                if (!rtpdds::json_to_dds(j, type_name, sample)) {
+                    LOG_ERR("DDS", "publish_text: json_to_dds failed for type=%s", type_name.c_str());
+                    rtpdds::destroy_sample(type_name, sample);
+                    continue;
+                }
                 holder->write_any(sample);
+                rtpdds::destroy_sample(type_name, sample);
                 LOG_INF("DDS", "write ok topic=%s domain=%d pub=%s size=%zu", topic.c_str(), dom.first, pub.first.c_str(), text.size());
                 count++;
             }
@@ -370,17 +361,21 @@ DdsResult DdsManager::publish_text(int domain_id, const std::string& pub_name, c
         LOG_ERR("DDS", "publish_text: type_name not found for topic=%s", topic.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "type_name not found for topic: " + topic);
     }
-    auto fit = sample_factories.find(type_name);
-    if (fit == sample_factories.end()) {
-        LOG_ERR("DDS", "publish_text: sample_factory not found for type=%s", type_name.c_str());
-        return DdsResult(false, DdsErrorCategory::Logic, "No sample factory for type: " + type_name);
-    }
-    auto sample = fit->second(text);
-    if (!sample.has_value()) {
+    void* sample = rtpdds::create_sample(type_name);
+    if (!sample) {
         LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "failed to create sample for type: " + type_name);
     }
-    holder->write_any(sample.has_value());
+    // JSON → DDS 매핑
+    nlohmann::json j;
+    try { j = nlohmann::json::parse(text); } catch (...) { LOG_ERR("DDS", "publish_text: invalid JSON"); rtpdds::destroy_sample(type_name, sample); return DdsResult(false, DdsErrorCategory::Logic, "invalid JSON"); }
+    if (!rtpdds::json_to_dds(j, type_name, sample)) {
+        LOG_ERR("DDS", "publish_text: json_to_dds failed for type=%s", type_name.c_str());
+        rtpdds::destroy_sample(type_name, sample);
+        return DdsResult(false, DdsErrorCategory::Logic, "json_to_dds failed for type: " + type_name);
+    }
+    holder->write_any(sample);
+    rtpdds::destroy_sample(type_name, sample);
     LOG_INF("DDS", "write ok domain=%d pub=%s topic=%s size=%zu", domain_id, pub_name.c_str(), topic.c_str(), text.size());
     return DdsResult(true, DdsErrorCategory::None,
                      "Publish succeeded: domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
@@ -395,5 +390,6 @@ void DdsManager::set_on_sample(SampleHandler cb)
     on_sample_ = std::move(cb);
     LOG_DBG("DDS", "on_sample handler installed");
 }
+
 
 }  // namespace rtpdds

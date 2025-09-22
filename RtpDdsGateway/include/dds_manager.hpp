@@ -22,6 +22,8 @@
 #include <dds/dds.hpp>
 
 #include "dds_type_registry.hpp"
+#include "idl_type_registry.hpp"
+#include "type_registry.hpp"
 
 
 namespace rtpdds
@@ -122,7 +124,9 @@ public:
         return (it != topic_to_type_.end()) ? it->second : "";
     }
 
+    
 private:
+    TypeRegistry type_registry_;
     // 도메인ID별 participant
     std::unordered_map<int, std::shared_ptr<dds::domain::DomainParticipant> > participants_;
     // 도메인/이름별 publisher

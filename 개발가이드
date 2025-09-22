@@ -1,459 +1,231 @@
-아래 파일들을 프로젝트에 그대로 추가하면 됩니다.
+핵심만 적는다. **API를 게이트웨이에서 실제로 쓰는 지점**까지 포함해 3단계 최종 가이드다. 조건문 없음. 파일·라인 교체 형태로 제시한다.
 
-```
-Agent_V2.0/
-  tools/
-    idl2json/
-      gen.py
-      templates/
-        registry.tmpl
-  parsers/
-    ngva/
-      generated/   # gen.py 출력 경로
-```
+# 1) 정리·골격 준비
 
----
+## DELETE
 
-# tools/idl2json/gen.py
+* `tools/idl2json/` 디렉토리
 
-```python
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-IDL→JSON 파서 코드 제너레이터(초판)
-- 외부 패키지 불필요. Python3 표준 라이브러리만 사용.
-- 출력: parsers/ngva/generated/
-    - parser_core_gen.hpp
-    - parser_core_gen.cpp
-    - enum_tables_gen.hpp
-- 규칙: 필드명=IDL 그대로, 중첩=IDL 구조, enum=토큰 문자열, 여분 키 금지, @optional 허용, 길이/범위 검증.
-"""
-import argparse, pathlib, re, sys, textwrap, json
-from fnmatch import fnmatch
+## EDIT `tools/emit_autoreg.py`
 
-# ---------- 유틸 ----------
-DEF_INT = {
-    'short':      ('int16',  -2**15, 2**15-1),
-    'unsigned short': ('uint16', 0, 2**16-1),
-    'long':       ('int32',  -2**31, 2**31-1),
-    'unsigned long': ('uint32', 0, 2**32-1),
-    'long long':  ('int64',  -2**63, 2**63-1),
-    'unsigned long long': ('uint64', 0, 2**64-1),
-}
-PRIMS = {
-    **{k:v[0] for k,v in DEF_INT.items()},
-    'float':  'float32',
-    'double': 'float64',
-    'boolean':'bool',
-    'char':   'char',
-    'octet':  'uint8',
-    'string': 'string',
-}
+* 치환:
 
-WS = re.compile(r"\s+")
-C_COMMENT = re.compile(r"/\*.*?\*/", re.S)
-CPP_COMMENT = re.compile(r"//.*?$", re.M)
+  * `out_h = gen / "idl_autoreg.hpp"` → `out_h = gen / "idl_type_registry.hpp"`
+  * `out_c = gen / "idl_autoreg.cpp"` → `out_c = gen / "idl_type_registry.cpp"`
+  * 소스 헤더 인클루드 생성부의 `'#include "idl_autoreg.hpp"'` → `'#include "idl_type_registry.hpp"\n#include "dds_type_registry.hpp"'`
+* 헤더 문자열(`hdr = """..."""`) 전체 교체:
 
-STRUCT_RE = re.compile(r"struct\s+(\w+)\s*\{(.*?)\};", re.S)
-ENUM_RE   = re.compile(r"enum\s+(\w+)\s*\{(.*?)\};", re.S)
-TYPEDEF_RE= re.compile(r"typedef\s+([^;]+?)\s+(\w+)\s*;", re.S)
-MODULE_RE = re.compile(r"module\s+(\w+)\s*\{")
+  ```cpp
+  #pragma once
+  #include <string>
+  #include <unordered_map>
+  #include <dds/domain/DomainParticipant.hpp>
+  namespace idlmeta {
+    struct TypeOps {
+      const char* name;
+      void* (*create)() noexcept;
+      void  (*destroy)(void*) noexcept;
+      void  (*register_type)(dds::domain::DomainParticipant&) noexcept;
+    };
+    const std::unordered_map<std::string, TypeOps>& type_registry() noexcept;
+    bool register_all(dds::domain::DomainParticipant&) noexcept;
+    void install_factories() noexcept; // rtpdds::register_dds_type<T>() 호출 모음
+  }
+  ```
+* 타입별 소스 생성 포맷 교체(각 T에 대해 4개 심볼 생성):
 
-SEQUENCE_RE = re.compile(r"sequence\s*<\s*([^,>]+)\s*(?:,\s*(\d+)\s*)?>")
+  ```cpp
+  static void* create_{i}() noexcept { return new {T}(); }
+  static void  destroy_{i}(void* p) noexcept { delete static_cast<{T}*>(p); }
+  static void  register_{i}(dds::domain::DomainParticipant& dp) noexcept {
+    dds::topic::register_type<{T}>(dp, "{type_name}");
+  }
+  ```
+* 레지스트리·설치 함수 생성부 교체:
 
-class Field:
-    def __init__(self, name, type_str, optional=False):
-        self.name=name; self.type_str=type_str; self.optional=optional
-        # resolved
-        self.kind=None; self.max_len=None; self.enum_name=None; self.elem=None; self.ref=None
+  ```cpp
+  static const std::unordered_map<std::string, idlmeta::TypeOps> kReg = {
+    { "{type_name}", { "{type_name}", &create_{i}, &destroy_{i}, &register_{i} } },
+    // …
+  };
 
-class Struct:
-    def __init__(self, fqn):
-        self.fqn=fqn; self.fields=[]
-        self.func=fqn.replace('::','__')
-
-class Enum:
-    def __init__(self, fqn, tokens):
-        self.fqn=fqn; self.tokens=[t.strip() for t in tokens if t.strip()]
-
-class Typedef:
-    def __init__(self, alias, base):
-        self.alias=alias; self.base=base
-
-class Model:
-    def __init__(self):
-        self.structs={}   # fqn -> Struct
-        self.enums={}     # name or fqn -> Enum
-        self.typedefs={}  # alias -> base str
-
-    def find_struct(self, name):
-        if name in self.structs: return self.structs[name]
-        # try simple name
-        for k in self.structs:
-            if k.split('::')[-1]==name: return self.structs[k]
-        return None
-    def has_enum(self, name):
-        if name in self.enums: return True
-        for k in self.enums:
-            if k.split('::')[-1]==name: return True
-        return False
-
-# ---------- 파서 ----------
-
-def decomment(txt:str)->str:
-    txt=C_COMMENT.sub('',txt)
-    txt=CPP_COMMENT.sub('',txt)
-    return txt
-
-def parse_modules(txt):
-    # 반환: [(mod_chain, inner_text)] 재귀적으로 풀기보단 선형 스택으로 구조만 추출
-    blocks=[]
-    i=0; n=len(txt)
-    stack=[]
-    while i<n:
-        m=MODULE_RE.search(txt, i)
-        if not m: break
-        name=m.group(1)
-        # find matching '}'
-        j=m.end()
-        depth=1
-        while j<n and depth>0:
-            if txt[j]=='{': depth+=1; j+=1
-            elif txt[j]=='}': depth-=1; j+=1
-            else: j+=1
-        inner=txt[m.end():j-1]
-        blocks.append( (name, inner) )
-        i=j
-    return blocks
-
-def parse_structs_enums_typedefs(txt, ns_chain, model:Model):
-    # typedefs
-    for m in TYPEDEF_RE.finditer(txt):
-        base=m.group(1).strip(); alias=m.group(2).strip()
-        model.typedefs[alias]=WS.sub(' ', base)
-    # enums
-    for m in ENUM_RE.finditer(txt):
-        name=m.group(1)
-        body=m.group(2)
-        toks=[t.strip() for t in body.split(',') if t.strip()]
-        fqn='::'.join(ns_chain+[name]) if ns_chain else name
-        model.enums[fqn]=Enum(fqn,toks)
-        model.enums[name]=model.enums[fqn]
-    # structs
-    for m in STRUCT_RE.finditer(txt):
-        name=m.group(1); body=m.group(2)
-        fqn='::'.join(ns_chain+[name]) if ns_chain else name
-        st=Struct(fqn)
-        for line in body.split(';'):
-            line=line.strip()
-            if not line: continue
-            opt='@optional' in line
-            line=line.replace('@optional','').strip()
-            # e.g. "P_LDM_Common::T_IdentifierType A_sourceID" or "long level"
-            parts=line.split()
-            fname=parts[-1]
-            tstr=line[:line.rfind(fname)].strip()
-            st.fields.append(Field(fname, WS.sub(' ', tstr), opt))
-        model.structs[fqn]=st
-
-
-def parse_idl_files(files)->Model:
-    model=Model()
-    for fp in files:
-        txt=pathlib.Path(fp).read_text(encoding='utf-8', errors='ignore')
-        txt=decomment(txt)
-        # top-level typedef/enum/struct
-        parse_structs_enums_typedefs(txt, [], model)
-        # modules
-        for name, inner in parse_modules(txt):
-            parse_structs_enums_typedefs(inner, [name], model)
-    return model
-
-# ---------- 타입 해석 ----------
-
-def resolve_type(model:Model, tstr:str, current_ns=None):
-    tstr=tstr.strip()
-    # typedef 치환 반복
-    seen=set()
-    while tstr in model.typedefs and tstr not in seen:
-        seen.add(tstr)
-        tstr=model.typedefs[tstr]
-    # sequence?
-    m=SEQUENCE_RE.search(tstr)
-    if m:
-        elem=m.group(1).strip(); cap=m.group(2)
-        max_len=int(cap) if cap else None
-        # sequence<char,N> → string(N)
-        if elem in ('char','T_Char','P_LDM_Common::T_Char'):
-            return {'kind':'string','max_len':max_len}
-        elem_res=resolve_type(model, elem)
-        return {'kind':'sequence','elem':elem_res,'max_len':max_len}
-    # 기본형
-    if tstr in PRIMS:
-        k=PRIMS[tstr]
-        if k in ('int16','uint16','int32','uint32','int64','uint64','uint8','char'):
-            return {'kind':k}
-        return {'kind':k}
-    # enum?
-    if model.has_enum(tstr):
-        return {'kind':'enum','enum_name':tstr}
-    # struct?
-    st=model.find_struct(tstr)
-    if st:
-        return {'kind':'struct','ref':st.fqn}
-    # 네임스페이스 없는 enum/struct 시도
-    if '::' not in tstr:
-        # try as P_LDM_Common::X
-        cand='P_LDM_Common::'+tstr
-        if model.find_struct(cand):
-            return {'kind':'struct','ref':cand}
-        if model.has_enum(cand):
-            return {'kind':'enum','enum_name':cand}
-    # fallback
-    return {'kind':'unknown','raw':tstr}
-
-
-def resolve_all(model:Model):
-    for st in model.structs.values():
-        for f in st.fields:
-            info = resolve_type(model, f.type_str)
-            f.kind=info.get('kind'); f.max_len=info.get('max_len'); f.enum_name=info.get('enum_name'); f.elem=info.get('elem'); f.ref=info.get('ref')
-
-# ---------- 토픽 선택 ----------
-
-def pick_topics(model:Model, includes, excludes):
-    topics=[]
-    for fqn, st in model.structs.items():
-        # 기본 제외: LDM_Common 계열
-        if fqn.startswith('P_LDM_Common::') or fqn.startswith('LDM_Common::'): continue
-        # include/exclude 패턴 적용
-        inc_ok = (not includes) or any(fnmatch(fqn, pat) or fnmatch('::'+fqn.split('::')[-1], pat) for pat in includes)
-        exc_bad = any(fnmatch(fqn, pat) for pat in excludes)
-        if inc_ok and not exc_bad:
-            topics.append(st)
-    return topics
-
-# ---------- 코드 생성 ----------
-
-HDR_PROLOGUE = """
-#pragma once
-#include <nlohmann/json.hpp>
-#include <unordered_map>
-#include <unordered_set>
-#include <string>
-using json = nlohmann::json;
-using Handler = bool(*)(const json&, std::string&);
-// 생성됨: 자동 생성 코드. 수정 금지.
-void register_handlers(std::unordered_map<std::string, std::pair<Handler,Handler>>& reg);
-""".strip()
-
-CPP_PROLOGUE = """
-#include "parser_core_gen.hpp"
-#include "enum_tables_gen.hpp"
-#include <limits>
-
-static inline bool only_keys(const json& j, const std::unordered_set<std::string>& allowed){
-    if(!j.is_object()) return false; for(auto it=j.begin(); it!=j.end(); ++it) if(!allowed.count(it.key())) return false; return true;
-}
-static inline bool chk_i64(const json& v){ return v.is_number_integer(); }
-static inline bool chk_num(const json& v){ return v.is_number(); }
-static inline bool chk_bool(const json& v){ return v.is_boolean(); }
-static inline bool chk_str(const json& v){ return v.is_string(); }
-
-""".strip()+"\n"
-
-ENUM_HPP_PROLOGUE = """
-#pragma once
-#include <string>
-#include <unordered_set>
-
-// 생성됨: enum 허용 토큰 집합
-""".strip()+"\n"
-
-
-def gen_enum_tables(model:Model):
-    lines=[ENUM_HPP_PROLOGUE]
-    for fqn, en in sorted({k:v for k,v in model.enums.items() if '::' in k}.items()):
-        var=fqn.replace('::','__')
-        arr=', '.join([f'"{t}"' for t in en.tokens])
-        lines.append(f'static const std::unordered_set<std::string> kEnum_{var} = '+'{'+arr+'};')
-    return '\n'.join(lines)+"\n"
-
-
-def keyset(fields):
-    keys=', '.join([f'"{f.name}"' for f in fields])
-    return f'static const std::unordered_set<std::string> __keys = '+'{'+keys+'};\n'
-
-
-def emit_check_assign(f:Field, model:Model, src_expr:str, dst_obj:str, indent:int=4)->str:
-    sp=' '*indent
-    name=f.name
-    opt=f.optional
-    lines=[]
-    def need_present():
-        return f"if(!{src_expr}.contains(\"{name}\")) return false;\n"
-    ref=f"{src_expr}[\"{name}\"]"
-    if f.kind in ('int16','uint16','int32','uint32','int64','uint64','uint8','char'):
-        if not opt: lines.append(sp+need_present())
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& v={ref}; if(!v.is_number_integer()) return false; {dst_obj}[\"{name}\"]=v; }}\n")
-    elif f.kind in ('float32','float64'):
-        if not opt: lines.append(sp+need_present())
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& v={ref}; if(!v.is_number()) return false; {dst_obj}[\"{name}\"]=v; }}\n")
-    elif f.kind=='bool':
-        if not opt: lines.append(sp+need_present())
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& v={ref}; if(!v.is_boolean()) return false; {dst_obj}[\"{name}\"]=v; }}\n")
-    elif f.kind=='string':
-        if not opt: lines.append(sp+need_present())
-        chk_len = f" if(s.size()>{f.max_len}) return false;" if f.max_len else ""
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& v={ref}; if(!v.is_string()) return false; std::string s=v.get<std::string>();{chk_len} {dst_obj}[\"{name}\"]=std::move(s); }}\n")
-    elif f.kind=='enum':
-        if not opt: lines.append(sp+need_present())
-        setname = f.enum_name if '::' in (f.enum_name or '') else f'P_LDM_Common::{f.enum_name}' if model.has_enum('P_LDM_Common::'+(f.enum_name or '')) else f.enum_name
-        var=setname.replace('::','__')
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& v={ref}; if(!v.is_string()) return false; std::string tok=v.get<std::string>(); if(!kEnum_{var}.count(tok)) return false; {dst_obj}[\"{name}\"]=std::move(tok); }}\n")
-    elif f.kind=='struct':
-        if not opt: lines.append(sp+need_present())
-        func = f.ref.replace('::','__')
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& obj={ref}; json out_child; if(!validate_{func}(obj, out_child)) return false; {dst_obj}[\"{name}\"]=std::move(out_child); }}\n")
-    elif f.kind=='sequence':
-        if not opt: lines.append(sp+need_present())
-        maxlen = f.max_len
-        capchk = f" if(arr.size()>{maxlen}) return false;" if maxlen else ""
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ const auto& arr={ref}; if(!arr.is_array()) return false;{capchk} json a=json::array();\n")
-        # element check
-        e=f.elem
-        if e.get('kind')=='struct':
-            func=e['ref'].replace('::','__')
-            lines.append(sp+"  for(const auto& el: arr){ json ch; if(!validate_"+func+"(el, ch)) return false; a.push_back(std::move(ch)); }\n")
-        elif e.get('kind')=='enum':
-            en=e['enum_name']; setname = en if '::' in en else ('P_LDM_Common::'+en if model.has_enum('P_LDM_Common::'+en) else en)
-            var=setname.replace('::','__')
-            lines.append(sp+"  for(const auto& el: arr){ if(!el.is_string()) return false; std::string tok=el.get<std::string>(); if(!kEnum_"+var+".count(tok)) return false; a.push_back(std::move(tok)); }\n")
-        elif e.get('kind') in ('int16','uint16','int32','uint32','int64','uint64','uint8','char'):
-            lines.append(sp+"  for(const auto& el: arr){ if(!el.is_number_integer()) return false; a.push_back(el); }\n")
-        elif e.get('kind') in ('float32','float64'):
-            lines.append(sp+"  for(const auto& el: arr){ if(!el.is_number()) return false; a.push_back(el); }\n")
-        elif e.get('kind')=='bool':
-            lines.append(sp+"  for(const auto& el: arr){ if(!el.is_boolean()) return false; a.push_back(el); }\n")
-        elif e.get('kind')=='string':
-            mlen=e.get('max_len'); lenchk=(f" if(s.size()>{mlen}) return false;" if mlen else "")
-            lines.append(sp+"  for(const auto& el: arr){ if(!el.is_string()) return false; std::string s=el.get<std::string>();"+lenchk+" a.push_back(std::move(s)); }\n")
-        else:
-            lines.append(sp+"  for(const auto& el: arr){ a.push_back(el); }\n")
-        lines.append(sp+f"  {dst_obj}[\"{name}\"]=std::move(a); }}\n")
-    else:
-        if not opt: lines.append(sp+need_present())
-        lines.append(sp+f"if({src_expr}.contains(\"{name}\")) {{ {dst_obj}[\"{name}\"]= {ref}; }}\n")
-    return ''.join(lines)
-
-
-def gen_validators(model:Model):
-    code=[]
-    # 각 struct에 대해 validate_ 함수 생성
-    for fqn, st in sorted(model.structs.items()):
-        func=st.fqn.replace('::','__')
-        code.append(f"// validate {st.fqn}\n")
-        code.append(f"static bool validate_{func}(const json& in, json& out){{\n")
-        code.append("    if(!in.is_object()) return false;\n")
-        code.append('    '+keyset(st.fields))
-        code.append("    if(!only_keys(in, __keys)) return false;\n")
-        code.append("    json o=json::object();\n")
-        for f in st.fields:
-            code.append(emit_check_assign(f, model, 'in', 'o', indent=4))
-        # 필수 필드가 누락된 경우는 위에서 체크됨(contains 추가). optional은 스킵 허용
-        code.append("    out=std::move(o);\n    return true;\n}\n\n")
-    return ''.join(code)
-
-
-def gen_handlers(topics):
-    code=[]
-    for st in topics:
-        func=st.fqn.replace('::','__')
-        code.append(f"// handlers for {st.fqn}\n")
-        code.append(f"static bool handle_{func}_from(const json& in, std::string& out){{ json o; if(!validate_{func}(in,o)) return false; out=o.dump(); return true; }}\n")
-        code.append(f"static bool handle_{func}_to  (const json& in, std::string& out){{ json o; if(!validate_{func}(in,o)) return false; out=o.dump(); return true; }}\n\n")
-    return ''.join(code)
-
-
-def gen_registry(topics):
-    entries=[]
-    for st in topics:
-        func=st.fqn.replace('::','__')
-        entries.append(f'    reg["{st.fqn}"] = {{handle_{func}_from, handle_{func}_to}};')
-    return '\n'.join(entries)
-
-
-def render_cpp(model:Model, topics):
-    parts=[CPP_PROLOGUE]
-    parts.append(gen_validators(model))
-    parts.append(gen_handlers(topics))
-    parts.append("void register_handlers(std::unordered_map<std::string, std::pair<Handler,Handler>>& reg){\n")
-    parts.append(gen_registry(topics))
-    parts.append("\n}\n")
-    return ''.join(parts)
-
-# ---------- 메인 ----------
-
-def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument('--idl', nargs='*', required=True)
-    ap.add_argument('--discover', action='store_true')
-    ap.add_argument('--include', nargs='*', default=['::C_*','AlarmMsg','StringMsg'])
-    ap.add_argument('--exclude', nargs='*', default=['P_LDM_Common::*','LDM_Common::*'])
-    ap.add_argument('--out', required=True)
-    args=ap.parse_args()
-
-    outdir=pathlib.Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
-
-    model=parse_idl_files(args.idl)
-    resolve_all(model)
-
-    topics = pick_topics(model, args.include if args.discover else None, args.exclude)
-
-    # 파일 생성
-    (outdir/ 'parser_core_gen.hpp').write_text(HDR_PROLOGUE, encoding='utf-8')
-    (outdir/ 'parser_core_gen.cpp').write_text(render_cpp(model, topics), encoding='utf-8')
-    (outdir/ 'enum_tables_gen.hpp').write_text(gen_enum_tables(model), encoding='utf-8')
-
-    # 디버그용 요약
-    summary={
-        'topics':[st.fqn for st in topics],
-        'structs': list(sorted(model.structs.keys())),
-        'enums': list(sorted({k for k in model.enums.keys() if '::' in k})),
-        'typedefs': model.typedefs,
+  namespace idlmeta {
+    const std::unordered_map<std::string, TypeOps>& type_registry() noexcept { return kReg; }
+    bool register_all(dds::domain::DomainParticipant& dp) noexcept {
+      for (auto& kv : kReg) kv.second.register_type(dp);
+      return true;
     }
-    (outdir/ 'type_index.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding='utf-8')
+    void install_factories() noexcept {
+      // rtpdds::register_dds_type<T>를 전부 호출
+      rtpdds::register_dds_type<{T}>("{type_name}");
+      // …
+    }
+  }
+  ```
+* `idl_autoreg_registry` 관련 문자열 전부 제거.
 
-if __name__=='__main__':
-    main()
-```
+## EDIT `tools/emit_jsonbind.py`
+
+* 치환:
+
+  * `out_h = gen / "idl_jsonbind.hpp"` → `out_h = gen / "idl_json_bind.hpp"`
+  * `out_c = gen / "idl_jsonbind.cpp"` → `out_c = gen / "idl_json_bind.cpp"`
+  * 소스 헤더 인클루드 생성부의 `'#include "idl_jsonbind.hpp"'` → `'#include "idl_json_bind.hpp"'`
+* 헤더 문자열 전체 교체:
+
+  ```cpp
+  #pragma once
+  #include <string>
+  #include <unordered_map>
+  #include <nlohmann/json.hpp>
+  namespace idlmeta {
+    struct JsonOps {
+      bool (*from_json)(const nlohmann::json&, void*) noexcept;
+      bool (*to_json)(const void*, nlohmann::json&) noexcept;
+    };
+    const std::unordered_map<std::string, JsonOps>& json_registry() noexcept;
+  }
+  ```
+* 레지스트리 정의 교체:
+
+  ```cpp
+  static const std::unordered_map<std::string, idlmeta::JsonOps> kBind = {
+    { "{type_name}", { &from_json_{i}, &to_json_{i} } },
+    // …
+  };
+  namespace idlmeta {
+    const std::unordered_map<std::string, JsonOps>& json_registry() noexcept { return kBind; }
+  }
+  ```
+* `from_json_{i}` / `to_json_{i}` 정의에 `noexcept` 추가.
+
+# 2) IdlKit CMake 정합
+
+## EDIT `IdlKit/CMakeLists.txt`
+
+* 삭제:
+
+  * `set(RTIDDSGEN_PLATFORM "x64Win64VS2017" CACHE STRING "rtiddsgen -platform")`
+* rtiddsgen 호출에서 `-platform` 옵션 제거. C++11:
+
+  ```
+  "$ENV{NDDSHOME}/bin/rtiddsgen.bat" -language C++11 -d "${GEN_DIR}" ${IDL_FILES}
+  ```
+
+  XML:
+
+  ```
+  "$ENV{NDDSHOME}/bin/rtiddsgen.bat" -language XML -d "${XML_DIR}" ${IDL_FILES}
+  ```
+* Support 제외 규칙 추가: `file(GLOB GEN_CPP_SOURCES "${GEN_DIR}/*.cxx")` 다음 줄에
+
+  ```
+  list(FILTER GEN_CPP_SOURCES EXCLUDE REGEX "Support\\.cxx$")
+  ```
+* 생성기 산출 파일명 교체:
+
+  * `idl_autoreg.hpp/cpp` → `idl_type_registry.hpp/cpp`
+  * `idl_jsonbind.hpp/cpp` → `idl_json_bind.hpp/cpp`
+  * `add_custom_target(idl_autoreg …)` → `add_custom_target(idl_type_registry …)`
+  * `add_custom_target(idl_jsonbind …)` → `add_custom_target(idl_json_bind …)`
+* `DdsTypes` 구성 교체:
+
+  ```
+  add_library(DdsTypes STATIC
+    ${GEN_CPP_SOURCES}
+    ${GEN_DIR}/idl_type_registry.cpp
+    ${GEN_DIR}/idl_json_bind.cpp)
+  add_dependencies(DdsTypes idl_cpp idl_xml idl_type_registry idl_json_bind)
+  ```
+* **추가**: 생성된 `idl_type_registry.cpp`가 `dds_type_registry.hpp`를 include하므로 인클루드 경로를 연결:
+
+  ```
+  target_include_directories(DdsTypes PRIVATE ${CMAKE_SOURCE_DIR}/RtpDdsGateway/include)
+  ```
+
+# 3) 게이트웨이 전환
+
+## EDIT `RtpDdsGateway/src/sample_factory.cpp`
+
+* include 교체:
+
+  * `#include "idl_autoreg.hpp"` → `#include "idl_type_registry.hpp"`
+  * `#include "idl_jsonbind.hpp"` → `#include "idl_json_bind.hpp"`
+* 심볼 교체:
+
+  * `idl_autoreg_registry()` 두 곳 → `idlmeta::type_registry()`
+  * `idl_jsonbind_registry()` 두 곳 → `idlmeta::json_registry()`
+* 결과: `create_sample / destroy_sample / json_to_dds / dds_to_json`이 **idlmeta** 레지스트리를 사용.
+
+## EDIT `RtpDdsGateway/include/dds_manager.hpp`
+
+* include 교체:
+
+  * `#include "dds_type_registry.hpp"` 유지(게이트웨이 팩토리 맵 정의 위치)
+  * **추가 include**: `#include "idl_type_registry.hpp"`
+
+## EDIT `RtpDdsGateway/src/dds_manager.cpp`
+
+* include 교체/추가:
+
+  * `#include "dds_type_registry.hpp"` 유지
+  * **추가** `#include "idl_type_registry.hpp"`
+* 참가자 생성 직후 호출 교체:
+
+  * 기존 65행: `init_dds_type_registry(participant.get());`
+  * 교체:
+
+    ```cpp
+    idlmeta::install_factories();          // writer/reader/topic 팩토리 맵 채움
+    idlmeta::register_all(*participant);   // 타입 등록
+    ```
+* 이 파일은 **publish 경로**에서 이미 다음 API를 사용하고 있다:
+
+  * 샘플 생성/파괴: `rtpdds::create_sample(type_name)`, `rtpdds::destroy_sample(type_name, sample)`
+  * JSON→DDS 변환: `rtpdds::json_to_dds(j, type_name, sample)`
+* 이 호출들은 `sample_factory.cpp`가 **idlmeta::json\_registry/type\_registry**를 경유하므로 추가 변경 없음.
+
+## EDIT `RtpDdsGateway/src/dds_type_registry.cpp`
+
+* include 교체:
+
+  * `#include "idl_autoreg.hpp"` → `#include "idl_type_registry.hpp"`
+* 함수 본문 교체:
+
+  ```cpp
+  void init_dds_type_registry(dds::domain::DomainParticipant* dp) {
+      if (!dp) return;
+      static bool once = false;
+      if (!once) {
+          idlmeta::install_factories();  // rtpdds::register_dds_type<T> 대량 호출
+          once = true;
+      }
+      idlmeta::register_all(*dp);        // 모든 타입 participant에 등록
+  }
+  ```
+* 결과: \*\*팩토리 맵(topic\_factories, writer\_factories, reader\_factories)\*\*가 설치되고, 이후 `dds_manager.cpp`의 `create_writer/create_reader`가 그대로 동작한다.
+
+## EDIT `RtpDdsGateway/CMakeLists.txt`
+
+* 의존 타깃 교체:
+
+  * `add_dependencies(RtpDdsCore idl_xml idl_autoreg idl_jsonbind)` →
+    `add_dependencies(RtpDdsCore idl_xml idl_type_registry idl_json_bind)`
+* `DdsTypes` 링크와 XML 복사 블록은 이미 존재. 추가 변경 없음.
 
 ---
 
-# tools/idl2json/templates/registry.tmpl
+## API 사용 위치 요약
 
-> 선택 사항. 현재 gen.py는 자체 생성기를 사용하므로 이 템플릿은 필요 없다. 나중에 템플릿 기반 렌더러로 교체할 때 사용.
+* **타입 등록**: `dds_manager.cpp`
+  `idlmeta::install_factories();` → 팩토리 맵 채움
+  `idlmeta::register_all(*participant);` → Connext에 타입 등록
+* **Writer/Reader/Topic 생성**: `dds_manager.cpp`
+  `create_writer/create_reader`에서 `topic_factories / writer_factories / reader_factories` 사용. 이 맵은 `install_factories()`로 채워짐.
+* **JSON 변환**:
 
-```cpp
-// placeholder template - not used by current gen.py
-```
+  * 출판: `dds_manager.cpp` → `rtpdds::json_to_dds()` 호출
+  * 수신→UI: `ipc_adapter.cpp` → `rtpdds::dds_to_json()` 호출
+    두 함수는 `sample_factory.cpp` 내부에서 `idlmeta::json_registry()`를 사용.
 
-```
-```
-이 위의 내용이 캔버스내용임.
-
-맞다. 지금부터 쓸 세트 올려놨다. 캔버스에 gen.py 포함.
-
-적용 순서:
-
-1. `tools/idl2json/gen.py`를 캔버스 내용대로 저장.
-2. CMake 빌드 실행. `--discover` 호출은 기존 설정 그대로.
-3. 생성물 확인: `parsers/ngva/generated/parser_core_gen.*`, `enum_tables_gen.hpp`, `type_index.json`.
-
-주의:
-
-* 파서는 “검증+정규화”만 수행. 표시용 변환은 추가하지 않음.
-* @optional은 생략 허용. 여분 키는 거부.
-* `LDM_Common.idl`의 struct들도 validator가 자동 생성되지만 토픽으로는 등록되지 않음.
-
-문제 생기면 `parsers/ngva/generated/type_index.json` 먼저 열어 토픽 목록과 해석 결과를 확인하라.
+이대로 적용하면, 게이트웨이는 **신규 IDL 추가 시 코드 수정 없이** 동작한다.

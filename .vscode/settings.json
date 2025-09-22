@@ -79,5 +79,7 @@
         "editor.defaultFormatter": "xaver.clang-format"
     },
     "editor.formatOnSave": true,
-    "clang-format.executable": "${workspaceRoot}/.clang-format"
+    "clang-format.executable": "${workspaceRoot}/.clang-format",
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "python-envs.pythonProjects": []
 }

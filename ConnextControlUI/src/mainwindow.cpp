@@ -1,10 +1,12 @@
 #include "mainwindow.hpp"
-#include "actual_alarm_dialog.hpp"
+
 
 #include <QtWidgets>
 
 #include <nlohmann/json.hpp>  // 수신 CBOR → JSON pretty 로그에 사용
-#include "parser_client.hpp"
+#include "xml_type_catalog.hpp"
+#include "generic_form_dialog.hpp"
+
 
 using dkmrtp::ipc::Endpoint;
 using dkmrtp::ipc::Header;
@@ -24,12 +26,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             // EVT 수신 표시부: display 역변환
             if (j.is_object() && j.value("evt","")=="data" && j.contains("display")) {
                 const std::string type = j.value("type","");
-                std::string uo;
-                // 파서 실패 시 display는 변하지 않음(원본 그대로 사용됨, stub)
-                if (parser_to(type, j["display"].dump(), uo)) {
-                    auto parsed = nlohmann::json::parse(uo, nullptr, false);
-                    if (!parsed.is_discarded()) j["display"] = std::move(parsed);
-                }
+                // XML 메타 기반 역변환 (필요시 구현)
             }
             QString logLine;
             if (j.value("ok", false)) {
@@ -146,10 +143,18 @@ void MainWindow::setupUi()
     leTopic_ = new QLineEdit("HelloTopic");
     cbType_ = new QComboBox();
     cbType_->setEditable(true);
-    cbType_->addItems({"StringMsg", "AlarmMsg", "P_Alarms_PSM::C_Actual_Alarm"});
+    // XML 디렉터리 기반 타입 목록 채우기
+    const QString xmlDir = QCoreApplication::applicationDirPath() + "/" + IDL_XML_DIR_RELATIVE;
+    // 토픽 타입만 표시, display/full 분리
+    cbType_->clear();
+    for (const auto& p : listTopicTypesFromXml(xmlDir)) cbType_->addItem(p.first, p.second);
+    appendLog(QString("XML Types: %1").arg(cbType_->count()));
+
     lePubName_ = new QLineEdit("pub1");
     leSubName_ = new QLineEdit("sub1");
     tePayload_ = new QTextEdit("Hello from UI");
+    tePayload_->setReadOnly(true);
+    tePayload_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     btnWriter_ = new QPushButton("Create Writer");
     btnReader_ = new QPushButton("Create Reader");
     btnPub_ = new QPushButton("Publish");
@@ -212,15 +217,16 @@ void MainWindow::setupUi()
     connect(btnReader_, &QPushButton::clicked, this, &MainWindow::onCreateReader);
     connect(btnPub_, &QPushButton::clicked, this, &MainWindow::onPublishSample);
     connect(cbLogLevel_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onLogLevelChanged);
-    connect(cbType_, &QComboBox::currentTextChanged, this, [this](const QString& type) {
-        if (type == "P_Alarms_PSM::C_Actual_Alarm") {
-            ActualAlarmDialog dlg(this);
-            if (dlg.exec() == QDialog::Accepted) {
-                QJsonObject obj = dlg.toJson();
-                tePayload_->setPlainText(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact)));
-            }
+    connect(cbType_, &QComboBox::currentTextChanged, this, [this](const QString&) {
+        // 제네릭 폼 다이얼로그 호출 및 값 수집
+    // 항상 full 값을 넘긴다
+    const QString type = cbType_->currentData().toString();
+        const QString xmlDir = QCoreApplication::applicationDirPath() + "/" + IDL_XML_DIR_RELATIVE;
+        GenericFormDialog dlg(xmlDir, type, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            QJsonObject obj = dlg.toJson();
+            tePayload_->setPlainText(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Indented)));
         }
-        // 기존 타입 템플릿은 그대로 유지
     });
     connect(btnClearDds_, &QPushButton::clicked, this, &MainWindow::onClearDdsEntities);
     connect(btnClearLog_, &QPushButton::clicked, this, &MainWindow::onClearLog);
@@ -416,7 +422,7 @@ void MainWindow::onCreateWriter()
     const int domain = leDomain_->text().toInt();
     const std::string pub_name = lePubName_->text().toStdString();
     const std::string topic = leTopic_->text().toStdString();
-    const std::string type = cbType_->currentText().toStdString();
+    const std::string type = cbType_->currentData().toString().toStdString();
     const std::string qos = (leQosLib_->text() + "::" + leQosProf_->text()).toStdString();
 
     triad::rpc::RpcBuilder rb;
@@ -433,7 +439,7 @@ void MainWindow::onCreateReader()
     const int domain = leDomain_->text().toInt();
     const std::string sub_name = leSubName_->text().toStdString();
     const std::string topic = leTopic_->text().toStdString();
-    const std::string type = cbType_->currentText().toStdString();
+    const std::string type = cbType_->currentData().toString().toStdString();
     const std::string qos = (leQosLib_->text() + "::" + leQosProf_->text()).toStdString();
 
     triad::rpc::RpcBuilder rb;
@@ -446,38 +452,31 @@ void MainWindow::onCreateReader()
 
 void MainWindow::onPublishSample()
 {
-    pulseButton(btnPub_);
-    const std::string topic = leTopic_->text().toStdString();
-    const std::string type = cbType_->currentText().toStdString();
-    const std::string text = tePayload_->toPlainText().toStdString();
+    const QString qtype = cbType_->currentData().toString();
+    const QString qtopic = leTopic_->text();
+
+    // 1) JSON 유효성 검사
+    const QByteArray raw = tePayload_->toPlainText().toUtf8();
+    const QJsonParseError err{};
+    QJsonParseError pe;
+    const QJsonDocument doc = QJsonDocument::fromJson(raw, &pe);
+    if (pe.error != QJsonParseError::NoError || !doc.isObject()) {
+        statusBar()->showMessage("Invalid JSON payload", 2000);
+        return;
+    }
+    const QString jsonStr =
+        QString::fromUtf8(QJsonDocument(doc.object()).toJson(QJsonDocument::Compact));
 
     triad::rpc::RpcBuilder rb;
-    rb.set_op("write").set_target("writer", {{"topic", topic}, {"type", type}}).data({{"text", text}}).proto(1);
-    send_req(rb);
+    rb.set_op("write")
+        .set_target("writer", {{"topic", qtopic.toStdString()}, {"type", qtype.toStdString()}})
+        .data({{"text", jsonStr.toStdString()}})  // Gateway 계약: data.text = JSON 문자열
+        .proto(1);
+
+    send_req(rb);  // 기존 IPC 경로 그대로 사용
 }
 
-void MainWindow::showActualAlarmDialogAndPublish() {
-    ActualAlarmDialog dlg(this);
-    if (dlg.exec() == QDialog::Accepted) {
-        QJsonObject obj = dlg.toJson();
-        QString jsonStr = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
-        tePayload_->setPlainText(jsonStr);
 
-        // Publish 로직 직접 호출
-        const std::string topic = "P_Alarms_PSM::C_Actual_Alarm";
-        const std::string type  = "P_Alarms_PSM::C_Actual_Alarm";
-        std::string text  = jsonStr.toStdString();
-        std::string out;
-        // 파서 실패 시 text는 변하지 않음(원본 그대로 사용됨, stub)
-        if (parser_from("P_Alarms_PSM::C_Actual_Alarm", text, out)) text.swap(out);
-        triad::rpc::RpcBuilder rb;
-        rb.set_op("write")
-            .set_target("writer", {{"topic", topic}, {"type", type}})
-            .data({{"text", text}})
-            .proto(1);
-        send_req(rb);
-    }
-}
 
 void MainWindow::onClearDdsEntities()
 {

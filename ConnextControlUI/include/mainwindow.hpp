@@ -32,7 +32,6 @@ class MainWindow final : public QMainWindow
     void onLogLevelChanged(int index);
     void onCreatePublisher();
     void onCreateSubscriber();
-    void showActualAlarmDialogAndPublish();
     void onClearDdsEntities(); // DDS 엔티티 전체 초기화
 
    private:

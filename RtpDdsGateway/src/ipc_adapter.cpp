@@ -13,8 +13,9 @@
 #include "sample_factory.hpp"
 
 
+#include "type_registry.hpp"
 #include <nlohmann/json.hpp>
-#include "parser_client.hpp"
+#include <any>
 
 namespace rtpdds
 {
@@ -216,13 +217,7 @@ void IpcAdapter::install_callbacks()
                     LOG_ERR("IPC", "publish_text failed: missing topic tag");
                     rsp = {{"ok", false}, {"err", 6}, {"msg", "Missing topic tag"}};
                 } else {
-                    // 파서 변환 (UI JSON → IDL 정규 JSON)
-                    std::string type = mgr_.get_type_for_topic(topic);
-                    if (!type.empty()) {
-                        std::string canon;
-                        // 파서 실패 시 text는 변하지 않음(원본 그대로 사용됨, stub)
-                        if (parser_from(type, text, canon)) text.swap(canon);
-                    }
+                    // (IdlKit 메타 기반 변환은 sample_factory에서 처리, 별도 런타임 registry/meta/JSON 매핑 제거)
                     LOG_DBG("IPC", "Calling DdsManager::publish_text(topic=%s, text=%s)", topic.c_str(), text.c_str());
                     DdsResult res = mgr_.publish_text(topic, text);
                     if (res.ok) {
@@ -262,41 +257,38 @@ void IpcAdapter::install_callbacks()
 
 
     // DDS에서 샘플 수신 시 EVT 전송(JSON→CBOR)
-    mgr_.set_on_sample([this](const std::string& topic, const std::string& type_name, const AnyData& data) {
-        LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
-        nlohmann::json display;
-        nlohmann::json data_json;
-        auto it = sample_to_json.find(type_name);
-        bool mapped = (it != sample_to_json.end());
-        LOG_DBG("IPC", "json mapper %s for type=%s", mapped?"hit":"miss", type_name.c_str());
-        if (mapped) {
-            try {
-                display = it->second(data);
-                auto s = display.dump();
-                if (s.size() > 2048) s.resize(2048);
-                LOG_DBG("IPC", "display json preview=%s", s.c_str());
-                // data 필드도 동일 변환 사용 (원본/가공 분리 필요시 별도 테이블 도입)
-                data_json = it->second(data);
-            } catch (...) {
-                LOG_WRN("IPC", "sample_to_json failed type=%s, fallback used", type_name.c_str());
-                display = nlohmann::json{{"raw"}};
-                data_json = nlohmann::json();
-            }
-        } else {
-            display = nullptr;
-            data_json = nlohmann::json();
+     mgr_.set_on_sample([this](const std::string& topic, const std::string& type_name, const AnyData& data) {
+         LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
+         nlohmann::json display;
+         nlohmann::json data_json;
+
+        const void* sample_ptr = nullptr;
+        try {
+            sample_ptr = std::any_cast<const void*>(data);
+        } catch (const std::bad_any_cast&) {
+            LOG_ERR("IPC", "AnyData is not const void* for type=%s", type_name.c_str());
         }
-        // 파서 역변환 (IDL 정규 JSON → UI JSON)
-        std::string uo;
-        // 파서 실패 시 display는 변하지 않음(원본 그대로 사용됨, stub)
-        if (parser_to(type_name, display.dump(), uo)) {
-            auto parsed = nlohmann::json::parse(uo, nullptr, false);
-            if (!parsed.is_discarded()) display = std::move(parsed);
-        }
-        nlohmann::json evt = { {"evt", "data"}, {"topic", topic}, {"type", type_name}, {"display", display}, {"data", data_json} };
-        LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d", topic.c_str(), type_name.c_str(), !display.is_null());
-        auto out = nlohmann::json::to_cbor(evt);
-        ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
+
+         bool ok = sample_ptr ? rtpdds::dds_to_json(type_name, sample_ptr, data_json) : false;
+
+         if (ok) {
+             display = data_json;
+             auto s = display.dump();
+             if (s.size() > 2048) s.resize(2048);
+             LOG_DBG("IPC", "display json preview=%s", s.c_str());
+         } else {
+             display = nullptr;
+             data_json = nlohmann::json();
+             LOG_WRN("IPC", "dds_to_json failed type=%s", type_name.c_str());
+         }
+
+         nlohmann::json evt = {
+             {"evt","data"}, {"topic",topic}, {"type",type_name},
+             {"display",display}, {"data",data_json}
+         };
+         LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d", topic.c_str(), type_name.c_str(), !display.is_null());
+         auto out = nlohmann::json::to_cbor(evt);
+         ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
     });
 
     ipc_.set_callbacks(cb);
