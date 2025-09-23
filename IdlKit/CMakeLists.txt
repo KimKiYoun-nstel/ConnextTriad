@@ -8,6 +8,7 @@ set(RTIDDSGEN_EXECUTABLE "$ENV{NDDSHOME}/bin/rtiddsgen.bat" CACHE FILEPATH "rtid
 if(NOT EXISTS "${RTIDDSGEN_EXECUTABLE}")
   message(FATAL_ERROR "Set NDDSHOME or RTIDDSGEN_EXECUTABLE")
 endif()
+message(WARNING "${RTIDDSGEN_EXECUTABLE}")
 
 # 경로
 set(IDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/idl)
@@ -80,6 +81,8 @@ add_library(DdsTypes STATIC ${GEN_CPP_SOURCES} ${GEN_DIR}/idl_type_registry.cpp 
 add_dependencies(DdsTypes idl_cpp idl_xml idl_type_registry idl_json_bind)
 target_include_directories(DdsTypes PUBLIC ${GEN_DIR}
                                      PRIVATE "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp" "${CMAKE_SOURCE_DIR}/third_party" "${CMAKE_SOURCE_DIR}/RtpDdsGateway/include")
+target_compile_definitions(DdsTypes PRIVATE NDDS_DLL_VARIABLE)
+
 # GEN_DIR과 install TU 경로를 export
 set_property(TARGET DdsTypes PROPERTY IDL_GEN_DIR "${GEN_DIR}")
 set_property(TARGET DdsTypes PROPERTY IDL_INSTALL_FACTORIES "${GEN_DIR}/idl_install_factories.cpp")

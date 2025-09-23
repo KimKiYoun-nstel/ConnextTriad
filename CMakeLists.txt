@@ -13,7 +13,7 @@ if(DEFINED ENV{NDDSHOME})
 endif()
 
 if(MSVC)
-  add_compile_options(/W4 /permissive- /utf-8 /EHsc)
+  add_compile_options(/W4 /permissive- /utf-8 /EHsc /bigobj)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
