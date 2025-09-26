@@ -5,13 +5,13 @@
 #include <QMainWindow>
 #include <QPushButton>
 #include <QTextEdit>
-#include <QTimer>
 #include <memory>
 
 #include "dkmrtp_ipc.hpp"
 #include "dkmrtp_ipc_messages.hpp"
 #include "dkmrtp_ipc_types.hpp"
 #include "rpc_envelope.hpp"  // A안: 빌더
+#include "xml_type_catalog.hpp"
 
 class MainWindow final : public QMainWindow
 {
@@ -38,6 +38,8 @@ class MainWindow final : public QMainWindow
     void setupUi();
     void updateUiState();
     void pulseButton(QWidget* w);
+    void onTopicSelected(const QString& typeName);
+    void updateTypeComboBoxes(); // 타입 콤보박스 업데이트
 
     // 레거시 전송(유지)
     void send_cmd(uint16_t type, const void* payload, uint32_t len);
@@ -49,6 +51,10 @@ class MainWindow final : public QMainWindow
     bool connected_{false};
     enum class LogLevel { Info, Debug } logLevel_{LogLevel::Info};
     uint32_t corr_{1};
+
+    // XML 카탈로그 및 토픽 콤보
+    XmlTypeCatalog catalog_;
+    QComboBox* topicCombo_{nullptr};
 
     // 위젯
     QLineEdit* leRole_{nullptr};  // "client" / "server"
@@ -73,6 +79,7 @@ class MainWindow final : public QMainWindow
     QPushButton* btnPub_{nullptr};
     QPushButton* btnClearDds_{nullptr}; // DDS 엔티티 전체 초기화 버튼
     QPushButton* btnClearLog_{nullptr}; // 로그 패널 clear 버튼
+    QPushButton* btnOpenForm_{nullptr}; // Open Form 버튼
     void onClearLog(); // 로그 패널 clear 슬롯
     QComboBox* cbLogLevel_{nullptr};
 

@@ -1,11 +1,11 @@
-#include "mainwindow.hpp"
+#include "../include/mainwindow.hpp"
 
 
 #include <QtWidgets>
 
 #include <nlohmann/json.hpp>  // 수신 CBOR → JSON pretty 로그에 사용
-#include "xml_type_catalog.hpp"
-#include "generic_form_dialog.hpp"
+#include "../include/xml_type_catalog.hpp"
+#include "../include/generic_form_dialog.hpp"
 
 
 using dkmrtp::ipc::Endpoint;
@@ -14,7 +14,39 @@ using dkmrtp::ipc::Role;
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 {
+    // 먼저 UI 설정
     setupUi();
+    
+    // XmlTypeCatalog 초기화 및 XML 로딩
+    QString xmlDir = QCoreApplication::applicationDirPath() + "/" + IDL_XML_DIR_RELATIVE;
+    QDir dir(xmlDir);
+    
+    appendLog(QString("Looking for XML files in: %1").arg(xmlDir));
+    appendLog(QString("Directory exists: %1").arg(dir.exists() ? "Yes" : "No"));
+    
+    if (dir.exists()) {
+        QStringList xmlFiles = dir.entryList({"*.xml"}, QDir::Files);
+        appendLog(QString("Found %1 XML files").arg(xmlFiles.size()));
+        
+        for (const QString& file : xmlFiles) {
+            QString filePath = dir.absoluteFilePath(file);
+            appendLog(QString("Parsing XML: %1").arg(filePath));
+            bool success = catalog_.parseXmlFile(filePath);
+            appendLog(QString("Parse result: %1").arg(success ? "Success" : "Failed"));
+        }
+    }
+    
+    // 파싱 완료 후 타입 개수 확인
+    QStringList allTypes = catalog_.topicTypeNames();
+    appendLog(QString("Total types loaded: %1").arg(allTypes.size()));
+    
+    // 업데이트된 타입 목록 확인
+    for (const QString& typeName : allTypes) {
+        appendLog(QString("- Type: %1").arg(typeName));
+    }
+    
+    // XML 파싱 완료 후 콤보박스 업데이트
+    updateTypeComboBoxes();
 
     // IPC 콜백 설치(레거시 + 새 프레임)
     dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
@@ -80,6 +112,61 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     updateUiState();
 }
 
+void MainWindow::updateTypeComboBoxes() {
+    QStringList typeNames = catalog_.topicTypeNames();
+    
+    // topicCombo_ 업데이트
+    if (topicCombo_) {
+        topicCombo_->clear();
+        for (const QString& typeName : typeNames) {
+            topicCombo_->addItem(typeName, typeName);
+        }
+        appendLog(QString("topicCombo_ populated with %1 types").arg(topicCombo_->count()));
+    }
+    
+    // cbType_ 업데이트  
+    if (cbType_) {
+        cbType_->clear();
+        for (const QString& typeName : typeNames) {
+            cbType_->addItem(typeName, typeName);
+        }
+        appendLog(QString("cbType_ populated with %1 types").arg(cbType_->count()));
+    }
+    
+    // Open Form 버튼 연결 (XML 파싱 완료 후)
+    static bool connected = false;
+    if (!connected && btnOpenForm_) {
+        connect(btnOpenForm_, &QPushButton::clicked, this, [this]() {
+            QString selectedType = topicCombo_->currentText();
+            appendLog(QString("Open Form clicked, selected type: %1").arg(selectedType));
+            if (!selectedType.isEmpty()) {
+                onTopicSelected(selectedType);
+            } else {
+                appendLog("No type selected");
+            }
+        });
+        connected = true;
+        appendLog("Open Form button connected successfully");
+    }
+}
+
+void MainWindow::onTopicSelected(const QString& typeName) {
+    if (typeName.isEmpty()) return;
+    
+    if (!catalog_.hasType(typeName)) {
+        appendLog(QString("Type not found: %1").arg(typeName));
+        return;
+    }
+    
+    // 힙에서 생성하여 스택 오버플로우 방지
+        QJsonObject json;
+        if (GenericFormDialog::getFormResult(&catalog_, typeName, this, json)) {
+            QJsonDocument doc(json);
+            tePayload_->setPlainText(doc.toJson(QJsonDocument::Compact));
+            appendLog("Form completed successfully");
+        }
+}
+
 void MainWindow::setupUi()
 {
     setWindowTitle("Connext Control UI");
@@ -121,6 +208,21 @@ void MainWindow::setupUi()
     cl->addWidget(btnConn_);
     lay->addWidget(gbConn);
 
+    // 토픽 타입 선택 영역 추가
+    auto* gbTopic = new QGroupBox("Topic Type Selection");
+    auto* tl = new QHBoxLayout(gbTopic);
+    topicCombo_ = new QComboBox();
+    // 파싱 후에 updateTypeComboBoxes()에서 채움
+    btnOpenForm_ = new QPushButton("Open Form");
+    tl->addWidget(new QLabel("Type:"));
+    tl->addWidget(topicCombo_);
+    tl->addWidget(btnOpenForm_);
+    tl->addStretch();
+    
+    // connect는 updateTypeComboBoxes()에서 처리
+    
+    lay->addWidget(gbTopic);
+
     // Participant
     auto* gbPart = new QGroupBox("Participant");
     auto* pl = new QHBoxLayout(gbPart);
@@ -143,12 +245,7 @@ void MainWindow::setupUi()
     leTopic_ = new QLineEdit("HelloTopic");
     cbType_ = new QComboBox();
     cbType_->setEditable(true);
-    // XML 디렉터리 기반 타입 목록 채우기
-    const QString xmlDir = QCoreApplication::applicationDirPath() + "/" + IDL_XML_DIR_RELATIVE;
-    // 토픽 타입만 표시, display/full 분리
-    cbType_->clear();
-    for (const auto& p : listTopicTypesFromXml(xmlDir)) cbType_->addItem(p.first, p.second);
-    appendLog(QString("XML Types: %1").arg(cbType_->count()));
+    // 파싱 후에 updateTypeComboBoxes()에서 채움
 
     lePubName_ = new QLineEdit("pub1");
     leSubName_ = new QLineEdit("sub1");
@@ -217,17 +314,6 @@ void MainWindow::setupUi()
     connect(btnReader_, &QPushButton::clicked, this, &MainWindow::onCreateReader);
     connect(btnPub_, &QPushButton::clicked, this, &MainWindow::onPublishSample);
     connect(cbLogLevel_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onLogLevelChanged);
-    connect(cbType_, &QComboBox::currentTextChanged, this, [this](const QString&) {
-        // 제네릭 폼 다이얼로그 호출 및 값 수집
-    // 항상 full 값을 넘긴다
-    const QString type = cbType_->currentData().toString();
-        const QString xmlDir = QCoreApplication::applicationDirPath() + "/" + IDL_XML_DIR_RELATIVE;
-        GenericFormDialog dlg(xmlDir, type, this);
-        if (dlg.exec() == QDialog::Accepted) {
-            QJsonObject obj = dlg.toJson();
-            tePayload_->setPlainText(QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Indented)));
-        }
-    });
     connect(btnClearDds_, &QPushButton::clicked, this, &MainWindow::onClearDdsEntities);
     connect(btnClearLog_, &QPushButton::clicked, this, &MainWindow::onClearLog);
 
@@ -320,15 +406,19 @@ void MainWindow::appendLog(const QString& line, bool isDebug)
         }
     }
 
-    // 일반 라인: 기존 색상 규칙 유지
+    // 일반 라인: 접두어별 색상 규칙
+    // [WRN] : 빨강 (경고)
+    // [ERR], [FTL] : 빨강, 굵게 (에러, 치명적)
+    // [DBG] : 파랑 (디버그)
+    // 기타 : 기본색
     if (line.startsWith("[WRN]"))
-        teLog_->append(QString("<span style='color:#ffb300'>%1</span>").arg(line.toHtmlEscaped()));
+        teLog_->append(QString("<span style='color:#ff5252'>%1</span>").arg(line.toHtmlEscaped())); // 빨강
     else if (line.startsWith("[ERR]") || line.startsWith("[FTL]"))
-        teLog_->append(QString("<span style='color:#ff5252'>%1</span>").arg(line.toHtmlEscaped()));
+        teLog_->append(QString("<span style='color:#ff5252;font-weight:bold'>%1</span>").arg(line.toHtmlEscaped())); // 빨강, 굵게
     else if (line.startsWith("[DBG]"))
-        teLog_->append(QString("<span style='color:#90caf9'>%1</span>").arg(line.toHtmlEscaped()));
+        teLog_->append(QString("<span style='color:#90caf9'>%1</span>").arg(line.toHtmlEscaped())); // 파랑
     else
-        teLog_->append(line.toHtmlEscaped());
+        teLog_->append(line.toHtmlEscaped()); // 기본색
     teLog_->moveCursor(QTextCursor::End);
 }
 

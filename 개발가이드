@@ -1,231 +1,75 @@
-핵심만 적는다. **API를 게이트웨이에서 실제로 쓰는 지점**까지 포함해 3단계 최종 가이드다. 조건문 없음. 파일·라인 교체 형태로 제시한다.
+이해했다. 규칙 먼저, 예시는 두 구조체로.
 
-# 1) 정리·골격 준비
+## 규칙(공통)
 
-## DELETE
+* 시간형: `T_DateTimeType`은 “생성시각” 사용. 형식 `{ A_second:int64, A_nanoseconds:int32 }`(UNIX epoch, UTC 기준). 예시용으로 `A_nanoseconds`는 0 권장.
+* 기간형: `T_DurationType`은 형식 `{ A_seconds:int32, A_nanoseconds:int32 }`. 예시는 최소 유효값으로 `{"A_seconds":1,"A_nanoseconds":0}` 권장.
+* 식별자: `T_IdentifierType`은 `{ A_resourceId:int32, A_instanceId:int32 }`. 예시는 `{"A_resourceId":1,"A_instanceId":1}`부터 증가.
+* 불리언: `false` 권장.
+* 문자열: 빈문자열 금지. 필드명에서 접두어 `A_`를 제거한 토큰을 값으로 사용(예: `A_componentName` → `"componentName"`). 길이 제한 준수(T\_ShortString≤20, T\_MediumString≤100, T\_LongString≤500).
+* 시퀀스: 최소 1개 원소 포함. 식별자 시퀀스는 `[{ "A_resourceId":1, "A_instanceId":1 }]` 형태로 시작.
+* 열거형: 해당 타입의 첫 열거자를 기본 예시값으로. Common의 예:
+  `T_RAGType`→`L_RAGType_RED`, `T_Axis3DType`→`L_Axis3DType_X_AXIS`, `T_CommandResponseType`→`L_CommandResponseType_Command_Failed`.
+  Alarms\_PSM의 예: `T_Alarm_Condition_Specification_StateType`→`L_..._condition_overridden`, `T_AlarmCategoryType`→`L_AlarmCategoryType_Warning`.
+* 수치 별칭들(모든 `T_Double` 기반 물리량, `T_Int16/32/64` 등): 예시는 1 또는 1.0을 사용하되 단위 의미 유지.
+* 기타 구조체들(좌표·자세·속도 등)은 내부 필드를 위 규칙으로 채움.
 
-* `tools/idl2json/` 디렉토리
+## 근거 스키마
 
-## EDIT `tools/emit_autoreg.py`
-
-* 치환:
-
-  * `out_h = gen / "idl_autoreg.hpp"` → `out_h = gen / "idl_type_registry.hpp"`
-  * `out_c = gen / "idl_autoreg.cpp"` → `out_c = gen / "idl_type_registry.cpp"`
-  * 소스 헤더 인클루드 생성부의 `'#include "idl_autoreg.hpp"'` → `'#include "idl_type_registry.hpp"\n#include "dds_type_registry.hpp"'`
-* 헤더 문자열(`hdr = """..."""`) 전체 교체:
-
-  ```cpp
-  #pragma once
-  #include <string>
-  #include <unordered_map>
-  #include <dds/domain/DomainParticipant.hpp>
-  namespace idlmeta {
-    struct TypeOps {
-      const char* name;
-      void* (*create)() noexcept;
-      void  (*destroy)(void*) noexcept;
-      void  (*register_type)(dds::domain::DomainParticipant&) noexcept;
-    };
-    const std::unordered_map<std::string, TypeOps>& type_registry() noexcept;
-    bool register_all(dds::domain::DomainParticipant&) noexcept;
-    void install_factories() noexcept; // rtpdds::register_dds_type<T>() 호출 모음
-  }
-  ```
-* 타입별 소스 생성 포맷 교체(각 T에 대해 4개 심볼 생성):
-
-  ```cpp
-  static void* create_{i}() noexcept { return new {T}(); }
-  static void  destroy_{i}(void* p) noexcept { delete static_cast<{T}*>(p); }
-  static void  register_{i}(dds::domain::DomainParticipant& dp) noexcept {
-    dds::topic::register_type<{T}>(dp, "{type_name}");
-  }
-  ```
-* 레지스트리·설치 함수 생성부 교체:
-
-  ```cpp
-  static const std::unordered_map<std::string, idlmeta::TypeOps> kReg = {
-    { "{type_name}", { "{type_name}", &create_{i}, &destroy_{i}, &register_{i} } },
-    // …
-  };
-
-  namespace idlmeta {
-    const std::unordered_map<std::string, TypeOps>& type_registry() noexcept { return kReg; }
-    bool register_all(dds::domain::DomainParticipant& dp) noexcept {
-      for (auto& kv : kReg) kv.second.register_type(dp);
-      return true;
-    }
-    void install_factories() noexcept {
-      // rtpdds::register_dds_type<T>를 전부 호출
-      rtpdds::register_dds_type<{T}>("{type_name}");
-      // …
-    }
-  }
-  ```
-* `idl_autoreg_registry` 관련 문자열 전부 제거.
-
-## EDIT `tools/emit_jsonbind.py`
-
-* 치환:
-
-  * `out_h = gen / "idl_jsonbind.hpp"` → `out_h = gen / "idl_json_bind.hpp"`
-  * `out_c = gen / "idl_jsonbind.cpp"` → `out_c = gen / "idl_json_bind.cpp"`
-  * 소스 헤더 인클루드 생성부의 `'#include "idl_jsonbind.hpp"'` → `'#include "idl_json_bind.hpp"'`
-* 헤더 문자열 전체 교체:
-
-  ```cpp
-  #pragma once
-  #include <string>
-  #include <unordered_map>
-  #include <nlohmann/json.hpp>
-  namespace idlmeta {
-    struct JsonOps {
-      bool (*from_json)(const nlohmann::json&, void*) noexcept;
-      bool (*to_json)(const void*, nlohmann::json&) noexcept;
-    };
-    const std::unordered_map<std::string, JsonOps>& json_registry() noexcept;
-  }
-  ```
-* 레지스트리 정의 교체:
-
-  ```cpp
-  static const std::unordered_map<std::string, idlmeta::JsonOps> kBind = {
-    { "{type_name}", { &from_json_{i}, &to_json_{i} } },
-    // …
-  };
-  namespace idlmeta {
-    const std::unordered_map<std::string, JsonOps>& json_registry() noexcept { return kBind; }
-  }
-  ```
-* `from_json_{i}` / `to_json_{i}` 정의에 `noexcept` 추가.
-
-# 2) IdlKit CMake 정합
-
-## EDIT `IdlKit/CMakeLists.txt`
-
-* 삭제:
-
-  * `set(RTIDDSGEN_PLATFORM "x64Win64VS2017" CACHE STRING "rtiddsgen -platform")`
-* rtiddsgen 호출에서 `-platform` 옵션 제거. C++11:
-
-  ```
-  "$ENV{NDDSHOME}/bin/rtiddsgen.bat" -language C++11 -d "${GEN_DIR}" ${IDL_FILES}
-  ```
-
-  XML:
-
-  ```
-  "$ENV{NDDSHOME}/bin/rtiddsgen.bat" -language XML -d "${XML_DIR}" ${IDL_FILES}
-  ```
-* Support 제외 규칙 추가: `file(GLOB GEN_CPP_SOURCES "${GEN_DIR}/*.cxx")` 다음 줄에
-
-  ```
-  list(FILTER GEN_CPP_SOURCES EXCLUDE REGEX "Support\\.cxx$")
-  ```
-* 생성기 산출 파일명 교체:
-
-  * `idl_autoreg.hpp/cpp` → `idl_type_registry.hpp/cpp`
-  * `idl_jsonbind.hpp/cpp` → `idl_json_bind.hpp/cpp`
-  * `add_custom_target(idl_autoreg …)` → `add_custom_target(idl_type_registry …)`
-  * `add_custom_target(idl_jsonbind …)` → `add_custom_target(idl_json_bind …)`
-* `DdsTypes` 구성 교체:
-
-  ```
-  add_library(DdsTypes STATIC
-    ${GEN_CPP_SOURCES}
-    ${GEN_DIR}/idl_type_registry.cpp
-    ${GEN_DIR}/idl_json_bind.cpp)
-  add_dependencies(DdsTypes idl_cpp idl_xml idl_type_registry idl_json_bind)
-  ```
-* **추가**: 생성된 `idl_type_registry.cpp`가 `dds_type_registry.hpp`를 include하므로 인클루드 경로를 연결:
-
-  ```
-  target_include_directories(DdsTypes PRIVATE ${CMAKE_SOURCE_DIR}/RtpDdsGateway/include)
-  ```
-
-# 3) 게이트웨이 전환
-
-## EDIT `RtpDdsGateway/src/sample_factory.cpp`
-
-* include 교체:
-
-  * `#include "idl_autoreg.hpp"` → `#include "idl_type_registry.hpp"`
-  * `#include "idl_jsonbind.hpp"` → `#include "idl_json_bind.hpp"`
-* 심볼 교체:
-
-  * `idl_autoreg_registry()` 두 곳 → `idlmeta::type_registry()`
-  * `idl_jsonbind_registry()` 두 곳 → `idlmeta::json_registry()`
-* 결과: `create_sample / destroy_sample / json_to_dds / dds_to_json`이 **idlmeta** 레지스트리를 사용.
-
-## EDIT `RtpDdsGateway/include/dds_manager.hpp`
-
-* include 교체:
-
-  * `#include "dds_type_registry.hpp"` 유지(게이트웨이 팩토리 맵 정의 위치)
-  * **추가 include**: `#include "idl_type_registry.hpp"`
-
-## EDIT `RtpDdsGateway/src/dds_manager.cpp`
-
-* include 교체/추가:
-
-  * `#include "dds_type_registry.hpp"` 유지
-  * **추가** `#include "idl_type_registry.hpp"`
-* 참가자 생성 직후 호출 교체:
-
-  * 기존 65행: `init_dds_type_registry(participant.get());`
-  * 교체:
-
-    ```cpp
-    idlmeta::install_factories();          // writer/reader/topic 팩토리 맵 채움
-    idlmeta::register_all(*participant);   // 타입 등록
-    ```
-* 이 파일은 **publish 경로**에서 이미 다음 API를 사용하고 있다:
-
-  * 샘플 생성/파괴: `rtpdds::create_sample(type_name)`, `rtpdds::destroy_sample(type_name, sample)`
-  * JSON→DDS 변환: `rtpdds::json_to_dds(j, type_name, sample)`
-* 이 호출들은 `sample_factory.cpp`가 **idlmeta::json\_registry/type\_registry**를 경유하므로 추가 변경 없음.
-
-## EDIT `RtpDdsGateway/src/dds_type_registry.cpp`
-
-* include 교체:
-
-  * `#include "idl_autoreg.hpp"` → `#include "idl_type_registry.hpp"`
-* 함수 본문 교체:
-
-  ```cpp
-  void init_dds_type_registry(dds::domain::DomainParticipant* dp) {
-      if (!dp) return;
-      static bool once = false;
-      if (!once) {
-          idlmeta::install_factories();  // rtpdds::register_dds_type<T> 대량 호출
-          once = true;
-      }
-      idlmeta::register_all(*dp);        // 모든 타입 participant에 등록
-  }
-  ```
-* 결과: \*\*팩토리 맵(topic\_factories, writer\_factories, reader\_factories)\*\*가 설치되고, 이후 `dds_manager.cpp`의 `create_writer/create_reader`가 그대로 동작한다.
-
-## EDIT `RtpDdsGateway/CMakeLists.txt`
-
-* 의존 타깃 교체:
-
-  * `add_dependencies(RtpDdsCore idl_xml idl_autoreg idl_jsonbind)` →
-    `add_dependencies(RtpDdsCore idl_xml idl_type_registry idl_json_bind)`
-* `DdsTypes` 링크와 XML 복사 블록은 이미 존재. 추가 변경 없음.
+* LDM\_Common 타입 정의: `T_DateTimeType`, `T_DurationType`, `T_IdentifierType`, 문자열·수치·열거형·좌표 등
+* Alarms\_PSM 구조체와 열거형: 대상 두 구조체의 필드와 enum 목록
 
 ---
 
-## API 사용 위치 요약
+## 예시 1) C\_Alarm\_Condition\_Specification
 
-* **타입 등록**: `dds_manager.cpp`
-  `idlmeta::install_factories();` → 팩토리 맵 채움
-  `idlmeta::register_all(*participant);` → Connext에 타입 등록
-* **Writer/Reader/Topic 생성**: `dds_manager.cpp`
-  `create_writer/create_reader`에서 `topic_factories / writer_factories / reader_factories` 사용. 이 맵은 `install_factories()`로 채워짐.
-* **JSON 변환**:
+스키마: Alarms\_PSM.xml, 타입: LDM\_Common.xml
 
-  * 출판: `dds_manager.cpp` → `rtpdds::json_to_dds()` 호출
-  * 수신→UI: `ipc_adapter.cpp` → `rtpdds::dds_to_json()` 호출
-    두 함수는 `sample_factory.cpp` 내부에서 `idlmeta::json_registry()`를 사용.
+```json
+{
+  "A_sourceID": { "A_resourceId": 1, "A_instanceId": 1 },
+  "A_timeOfDataGeneration": { "A_second": 1758758400, "A_nanoseconds": 0 },
+  "A_subsystemName": "subsystemName",
+  "A_componentName": "componentName",
+  "A_measure": "measure",
+  "A_nature": "nature",
+  "A_alarmConditionCategory": "alarmConditionCategory",
+  "A_alarmConditionName": "alarmConditionName",
+  "A_hasMultipleInstances": false,
+  "A_overrideState": "L_Alarm_Condition_Specification_StateType_condition_overridden",
+  "A_actualAlarmCondition_sourceID": [
+    { "A_resourceId": 1, "A_instanceId": 1 }
+  ],
+  "A_alarmCategory_sourceID": { "A_resourceId": 2, "A_instanceId": 1 },
+  "A_interestedRole_sourceID": [
+    { "A_resourceId": 3, "A_instanceId": 1 }
+  ]
+}
+```
 
-이대로 적용하면, 게이트웨이는 **신규 IDL 추가 시 코드 수정 없이** 동작한다.
+* `1758758400`는 예시 생성시각(2025-09-25T00:00:00Z)이다.
+
+## 예시 2) C\_Alarm\_Category\_Specification
+
+스키마: Alarms\_PSM.xml, 타입: LDM\_Common.xml
+
+```json
+{
+  "A_sourceID": { "A_resourceId": 4, "A_instanceId": 1 },
+  "A_timeOfDataGeneration": { "A_second": 1758758400, "A_nanoseconds": 0 },
+  "A_alarmCategoryName": "L_AlarmCategoryType_Warning",
+  "A_alarmCategoryAbbreviation": "alarmCategoryAbbreviation",
+  "A_isAutoAcknowledged": false,
+  "A_automaticAcknowledgeTimeout": { "A_seconds": 1, "A_nanoseconds": 0 },
+  "A_hideOnAcknowledge": false,
+  "A_isRepeated": false,
+  "A_repeatTimeout": { "A_seconds": 1, "A_nanoseconds": 0 },
+  "A_categorisedConditionSpecification_sourceID": [
+    { "A_resourceId": 5, "A_instanceId": 1 }
+  ],
+  "A_notifyingToneSpecification_sourceID": { "A_resourceId": 6, "A_instanceId": 1 },
+  "A_alarmCategory_sourceID": { "A_resourceId": 7, "A_instanceId": 1 }
+}
+```
+
+필요 시, 위 규칙으로 다른 Alarms\_PSM 타입들에 대한 기본 예시도 생성 가능하다.
