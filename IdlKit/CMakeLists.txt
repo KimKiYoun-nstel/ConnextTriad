@@ -60,21 +60,26 @@ add_custom_command(
     ${GEN_DIR}/idl_type_registry.hpp
     ${GEN_DIR}/idl_type_registry.cpp
     ${GEN_DIR}/idl_install_factories.cpp
+    ${GEN_DIR}/idl_generated_includes.hpp
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/emit_autoreg.py ${GEN_DIR} ${XML_DIR}
   DEPENDS idl_cpp
   COMMENT "emit type registry + install factories"
 )
 
-add_custom_target(idl_type_registry DEPENDS ${GEN_DIR}/idl_type_registry.hpp ${GEN_DIR}/idl_type_registry.cpp)
+add_custom_target(idl_type_registry DEPENDS ${GEN_DIR}/idl_type_registry.hpp ${GEN_DIR}/idl_type_registry.cpp ${GEN_DIR}/idl_generated_includes.hpp)
 
 # JSON 바인딩 생성
 add_custom_command(
   OUTPUT ${GEN_DIR}/idl_json_bind.hpp ${GEN_DIR}/idl_json_bind.cpp
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/emit_jsonbind.py ${GEN_DIR} ${XML_DIR}
-  DEPENDS ${GEN_HEADERS} ${XML_OUTPUTS}
+  # Ensure per-IDL headers and the auto-registry/umbrella header are generated first.
+  DEPENDS ${GEN_HEADERS} ${XML_OUTPUTS} ${GEN_DIR}/idl_type_registry.hpp ${GEN_DIR}/idl_install_factories.cpp ${GEN_DIR}/idl_generated_includes.hpp
   COMMENT "Emit JSON bindings from XML"
 )
 add_custom_target(idl_json_bind DEPENDS ${GEN_DIR}/idl_json_bind.hpp ${GEN_DIR}/idl_json_bind.cpp)
+
+# Ensure idl_json_bind generation waits for idl_type_registry/autoreg generation
+add_dependencies(idl_json_bind idl_type_registry)
 
 # 타입 라이브러리: 실제 생성된 .cxx + type registry + json bind
 add_library(DdsTypes STATIC ${GEN_CPP_SOURCES} ${GEN_DIR}/idl_type_registry.cpp ${GEN_DIR}/idl_json_bind.cpp)

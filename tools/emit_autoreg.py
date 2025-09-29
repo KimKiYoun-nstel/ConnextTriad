@@ -54,6 +54,18 @@ for name, fqn in all_structs:
 # GEN의 모든 헤더 포함(심볼 가시화)
 hpp_list = sorted([p.name for p in GEN.glob("*.hpp")])
 
+# ---------- idl_generated_includes.hpp (umbrella) ----------
+# Create a single header that includes all rtiddsgen-generated headers so
+# other generated sources (and external consumers) can include one file.
+includes_hdr = GEN / "idl_generated_includes.hpp"
+incs = ['#pragma once', '/* auto-generated: umbrella includes for IDL-generated headers */']
+for h in hpp_list:
+    # avoid self-include if script is re-run
+    if h == includes_hdr.name:
+        continue
+    incs.append(f'#include "{h}"')
+includes_hdr.write_text("\n".join(incs), encoding="utf-8")
+
 # ---------- idl_type_registry.hpp ----------
 hdr = """#pragma once
 #include <string>
@@ -77,8 +89,8 @@ out_h.write_text(hdr, encoding="utf-8")
 # ---------- idl_type_registry.cpp ----------
 src = []
 src.append('#include "idl_type_registry.hpp"')
-for h in hpp_list:
-    src.append(f'#include "{h}"')
+# include the umbrella header instead of listing every generated hpp
+src.append('#include "idl_generated_includes.hpp"')
 src.append('#include <unordered_map>')
 
 for i, T in enumerate(topic_fqns):
@@ -100,8 +112,8 @@ out_c.write_text("\n".join(src), encoding="utf-8")
 # ---------- idl_install_factories.cpp ----------
 install = []
 install.append('#include "dds_type_registry.hpp"')  # rtpdds::register_dds_type<T>()
-for h in hpp_list:
-    install.append(f'#include "{h}"')
+# include umbrella header instead of per-header includes
+install.append('#include "idl_generated_includes.hpp"')
 install.append("namespace idlmeta {\nvoid install_factories() noexcept {")
 for T in topic_fqns:
     install.append(f'  rtpdds::register_dds_type<{T}>("{T}");')
