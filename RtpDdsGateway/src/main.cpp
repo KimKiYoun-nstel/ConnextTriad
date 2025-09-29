@@ -17,7 +17,7 @@ int main(int argc, char** argv)
 {
     using namespace rtpdds;
 
-    GatewayApp app;
+
     std::string mode = (argc > 1) ? argv[1] : "server";
     std::string addr = (argc > 2) ? argv[2] : "127.0.0.1";
     uint16_t port = (argc > 3) ? static_cast<uint16_t>(std::stoi(argv[3])) : 25000;
@@ -31,6 +31,8 @@ int main(int argc, char** argv)
     triad::set_level(triad::Lvl::Info);
 #endif
 
+    GatewayApp app;
+    
     bool ok = (mode == "server") ? app.start_server(addr, port) : app.start_client(addr, port);
 
     if (!ok) {

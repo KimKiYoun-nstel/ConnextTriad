@@ -21,6 +21,22 @@ namespace rtpdds {
 DdsManager::DdsManager()
 {
     init_dds_type_registry();
+    LOG_DBG("DDS", "DdsManager initialized. Registered factories:");
+
+    LOG_DBG("DDS", "Registered Topic Factories:");
+    for (const auto& factory : topic_factories) {
+        LOG_DBG("DDS", "  Topic Type: %s", factory.first.c_str());
+    }
+
+    LOG_DBG("DDS", "Registered Writer Factories:");
+    for (const auto& factory : writer_factories) {
+        LOG_DBG("DDS", "  Writer Type: %s", factory.first.c_str());
+    }
+
+    LOG_DBG("DDS", "Registered Reader Factories:");
+    for (const auto& factory : reader_factories) {
+        LOG_DBG("DDS", "  Reader Type: %s", factory.first.c_str());
+    }
 }
 
 DdsManager::~DdsManager()
@@ -283,7 +299,6 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
             auto it = pub.second.find(topic);
             if (it != pub.second.end()) {
                 auto& holder = it->second;
-                // 문자열 기반 타입 결정: topic_to_type_에서 타입명 조회
                 std::string type_name;
                 auto type_it = topic_to_type_.find(topic);
                 if (type_it == topic_to_type_.end()) {
@@ -291,21 +306,42 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
                     continue;
                 }
                 type_name = type_it->second;
-                // 샘플 생성: rtpdds API 사용
+                LOG_DBG("DDS", "publish_text: type_name=%s", type_name.c_str());
+
                 void* sample = rtpdds::create_sample(type_name);
                 if (!sample) {
                     LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
                     continue;
                 }
-                // JSON → DDS 매핑
+                LOG_DBG("DDS", "publish_text: sample created for type=%s", type_name.c_str());
+
                 nlohmann::json j;
-                try { j = nlohmann::json::parse(text); } catch (...) { LOG_ERR("DDS", "publish_text: invalid JSON"); rtpdds::destroy_sample(type_name, sample); continue; }
+                try {
+                    j = nlohmann::json::parse(text);
+                } catch (...) {
+                    LOG_ERR("DDS", "publish_text: invalid JSON");
+                    rtpdds::destroy_sample(type_name, sample);
+                    continue;
+                }
+
                 if (!rtpdds::json_to_dds(j, type_name, sample)) {
                     LOG_ERR("DDS", "publish_text: json_to_dds failed for type=%s", type_name.c_str());
                     rtpdds::destroy_sample(type_name, sample);
                     continue;
                 }
-                holder->write_any(sample);
+                LOG_DBG("DDS", "publish_text: json_to_dds succeeded for type=%s", type_name.c_str());
+
+                try {
+                    // void*를 std::any로 래핑
+                    std::any wrapped_sample = sample;
+                    holder->write_any(wrapped_sample);
+                } catch (const std::bad_any_cast& e) {
+                    LOG_ERR("DDS", "publish_text: bad_any_cast exception: %s", e.what());
+                    LOG_ERR("DDS", "publish_text: WriterHolder may not support type=%s", type_name.c_str());
+                    rtpdds::destroy_sample(type_name, sample);
+                    continue;
+                }
+
                 rtpdds::destroy_sample(type_name, sample);
                 LOG_INF("DDS", "write ok topic=%s domain=%d pub=%s size=%zu", topic.c_str(), dom.first, pub.first.c_str(), text.size());
                 count++;

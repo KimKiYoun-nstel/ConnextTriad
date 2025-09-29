@@ -20,7 +20,6 @@ bool isPrimitiveType(const QString& typeName) {
     };
     return primitives.contains(typeName) || primitives.contains(typeName.split("::").last());
 }
-
 // XmlTypeCatalog 클래스 구현
 bool XmlTypeCatalog::parseXmlFile(const QString& path) {
     if (parsedFiles.contains(path)) return true; // 이미 파싱된 파일은 성공으로 처리
@@ -77,7 +76,7 @@ bool XmlTypeCatalog::parseXmlFile(const QString& path) {
                             fld.nestedType = "";
                             if (!stringMaxLen.isEmpty()) fld.maxLen = stringMaxLen.toInt();
                         } else if (atType == "nonBasic") {
-                            // 시퀀스 타입
+                            // If sequenceMaxLen is present, treat as sequence
                             if (!sequenceMaxLen.isEmpty()) {
                                 fld.kind = "sequence";
                                 fld.sequenceElementType = nonBasicTypeName;
@@ -89,16 +88,30 @@ bool XmlTypeCatalog::parseXmlFile(const QString& path) {
                                     fld.isSequenceOfPrimitive = true;
                                     fld.nestedType = "";
                                 } else {
-                                    // 내부 구조체 시퀀스
+                                    // sequence of struct
                                     fld.nestedType = nonBasicTypeName;
                                     fld.isSequenceOfPrimitive = false;
                                     fld.isSequenceOfString = false;
                                 }
                             } else {
-                                // enum/struct/복합타입
-                                // enum 타입 판별은 별도 처리 필요 (여기서는 struct로 기본 처리)
-                                fld.kind = "struct";
-                                fld.nestedType = nonBasicTypeName;
+                                // non-sequence nonBasic: could be enum, typedef or struct reference
+                                // If the referenced type is present and is an enum in typeTable, mark enum
+                                if (hasType(nonBasicTypeName)) {
+                                    const XTypeSchema& ref = getType(nonBasicTypeName);
+                                    if (!ref.fields.isEmpty() && ref.fields.first().kind == "enum") {
+                                        fld.kind = "enum";
+                                        fld.nestedType = nonBasicTypeName;
+                                        fld.enumVals = ref.fields.first().enumVals;
+                                    } else {
+                                        // treat as struct reference/typedef alias
+                                        fld.kind = "struct";
+                                        fld.nestedType = nonBasicTypeName;
+                                    }
+                                } else {
+                                    // unknown reference: keep as struct to be validated later
+                                    fld.kind = "struct";
+                                    fld.nestedType = nonBasicTypeName;
+                                }
                             }
                         } else {
                             // 프리미티브 타입
@@ -138,7 +151,7 @@ bool XmlTypeCatalog::parseXmlFile(const QString& path) {
                     fld.kind = "sequence";
                     fld.upperBound = seqMaxLen.toInt();
                     fld.sequenceElementType = nonBasic;
-                    
+
                     if (nonBasic.contains("T_Char") || nonBasic == "char") {
                         fld.isSequenceOfString = true;
                     } else if (isPrimitiveType(nonBasic)) {
@@ -146,6 +159,10 @@ bool XmlTypeCatalog::parseXmlFile(const QString& path) {
                     } else {
                         fld.nestedType = nonBasic;
                     }
+                } else if (!nonBasic.isEmpty()) {
+                    // typedef to another non-basic type (alias) -> treat as struct referring to that type
+                    fld.kind = "struct";
+                    fld.nestedType = nonBasic;
                 } else if (!basicType.isEmpty()) {
                     // 기본 타입 typedef (T_Double, T_Int32 등)
                     if(basicType == "float64" || basicType == "double") fld.kind = "double";
@@ -154,10 +171,6 @@ bool XmlTypeCatalog::parseXmlFile(const QString& path) {
                     else if(basicType == "boolean" || basicType == "bool") fld.kind = "bool";
                     else if(basicType == "char8" || basicType == "char") fld.kind = "string";
                     else fld.kind = basicType;
-                } else if (!nonBasic.isEmpty()) {
-                    // 복합 타입 typedef (T_HeartbeatType 등)
-                    fld.kind = "struct";
-                    fld.nestedType = nonBasic;
                 }
                 
                 schema.fields.push_back(fld);
@@ -230,17 +243,28 @@ void XmlTypeCatalog::resolveTypedefChains() {
                             const auto nestedField = nestedSchema.fields.first();
                             if (nestedField.kind != "struct") {
                                 // typedef의 실제 타입으로 교체
-                                field.kind = nestedField.kind;
-                                if (nestedField.kind == "sequence") {
-                                    field.upperBound = nestedField.upperBound;
-                                    field.sequenceElementType = nestedField.sequenceElementType;
-                                    field.isSequenceOfString = nestedField.isSequenceOfString;
-                                    field.isSequenceOfPrimitive = nestedField.isSequenceOfPrimitive;
-                                }
-                                if (!nestedField.nestedType.isEmpty()) {
-                                    field.nestedType = nestedField.nestedType;
-                                } else {
+                                // Special case: typedef that is sequence of char (string typedef)
+                                // should be treated as a plain string, not a JSON array.
+                                if (nestedField.kind == "sequence" && nestedField.isSequenceOfString) {
+                                    field.kind = "string";
+                                    field.maxLen = nestedField.upperBound;
+                                    field.isSequenceOfString = false;
+                                    field.isSequenceOfPrimitive = false;
+                                    field.sequenceElementType.clear();
                                     field.nestedType.clear();
+                                } else {
+                                    field.kind = nestedField.kind;
+                                    if (nestedField.kind == "sequence") {
+                                        field.upperBound = nestedField.upperBound;
+                                        field.sequenceElementType = nestedField.sequenceElementType;
+                                        field.isSequenceOfString = nestedField.isSequenceOfString;
+                                        field.isSequenceOfPrimitive = nestedField.isSequenceOfPrimitive;
+                                    }
+                                    if (!nestedField.nestedType.isEmpty()) {
+                                        field.nestedType = nestedField.nestedType;
+                                    } else {
+                                        field.nestedType.clear();
+                                    }
                                 }
                                 field.enumVals = nestedField.enumVals;
                                 changed = true;
@@ -254,22 +278,42 @@ void XmlTypeCatalog::resolveTypedefChains() {
 }
 
 XTypeSchema XmlTypeCatalog::resolveType(const QString& typeName) const {
-    if (!hasType(typeName)) return XTypeSchema{};
+    // Strict resolution: only resolve via known types in typeTable.
+    if (!hasType(typeName)) {
+        // Try leaf name lookup only if it exists in the typeTable
+        const QString leaf = typeName.split("::").last();
+        if (!leaf.isEmpty() && hasType(leaf)) {
+            return resolveType(leaf);
+        }
+        return XTypeSchema{}; // unresolved
+    }
+
     const auto& schema = getType(typeName);
-    // typedef/체인을 따라가면서 최종 실제 타입 찾기
+    // If typedef-like single-field schema, follow the chain where sensible
     if (schema.fields.size() == 1) {
         const auto field = schema.fields.first();
-        // sequence typedef (ex: T_ShortString 등)
-        if (field.kind == "sequence" && !field.sequenceElementType.isEmpty()) {
-            // 시퀀스 원소 타입의 최종 타입 반환
+        if (field.kind == "sequence" && !field.sequenceElementType.isEmpty() && hasType(field.sequenceElementType)) {
             return resolveType(field.sequenceElementType);
         }
-        // struct typedef (ex: T_HeartbeatType 등)
         if (field.kind == "struct" && !field.nestedType.isEmpty() && hasType(field.nestedType)) {
             return resolveType(field.nestedType);
         }
-        // enum/primitive/string 등은 그대로 반환
-        // (enum: kind=="enum", primitive: kind=="int32" 등, string: kind=="string")
     }
     return schema;
+}
+
+void XmlTypeCatalog::validateAllReferences(QStringList& messages) const {
+    messages.clear();
+    for (const auto& pair : typeTable.toStdMap()) {
+        const QString& tname = pair.first;
+        const XTypeSchema& s = pair.second;
+        for (const XField& f : s.fields) {
+            if (!f.nestedType.isEmpty() && !hasType(f.nestedType)) {
+                messages.append(QString("Type %1 field %2 references unknown nestedType '%3'").arg(tname).arg(f.name).arg(f.nestedType));
+            }
+            if (!f.sequenceElementType.isEmpty() && !hasType(f.sequenceElementType) && !isPrimitiveType(f.sequenceElementType)) {
+                messages.append(QString("Type %1 field %2 references unknown sequenceElementType '%3'").arg(tname).arg(f.name).arg(f.sequenceElementType));
+            }
+        }
+    }
 }

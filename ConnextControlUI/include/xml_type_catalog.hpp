@@ -34,6 +34,9 @@ public:
     const XTypeSchema& getType(const QString& typeName) const;
     QStringList topicTypeNames() const;
     XTypeSchema resolveType(const QString& typeName) const;  // 타입 해결
+    // Validate that all referenced types (nestedType, sequenceElementType) exist in the catalog.
+    // Fills messages with warning strings for unresolved references.
+    void validateAllReferences(QStringList& messages) const;
 
 private:
     void resolveTypedefChains();  // typedef 체인 해결

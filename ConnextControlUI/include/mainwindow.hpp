@@ -5,6 +5,7 @@
 #include <QMainWindow>
 #include <QPushButton>
 #include <QTextEdit>
+#include <QJsonObject>
 #include <memory>
 
 #include "dkmrtp_ipc.hpp"
@@ -56,6 +57,14 @@ class MainWindow final : public QMainWindow
     XmlTypeCatalog catalog_;
     QComboBox* topicCombo_{nullptr};
 
+    // Sample JSON generation helper state
+    // sampleIdCounter_ is used to provide incrementing resourceId values for generated identifier samples
+    int sampleIdCounter_{1};
+
+    // Generate a QJsonObject sample for a given topic/type name (runtime sample generator)
+    // This follows the rules defined in xml_parsing_rule.md and 개발가이드 for sensible defaults.
+    QJsonObject generateSampleJsonObject(const QString& typeName);
+
     // 위젯
     QLineEdit* leRole_{nullptr};  // "client" / "server"
     QLineEdit* leAddr_{nullptr};  // ip/host
@@ -80,7 +89,9 @@ class MainWindow final : public QMainWindow
     QPushButton* btnClearDds_{nullptr}; // DDS 엔티티 전체 초기화 버튼
     QPushButton* btnClearLog_{nullptr}; // 로그 패널 clear 버튼
     QPushButton* btnOpenForm_{nullptr}; // Open Form 버튼
+    QPushButton* btnPayloadPopup_{nullptr}; // 버튼: Payload를 팝업으로 열기
     void onClearLog(); // 로그 패널 clear 슬롯
+    void onOpenPayloadPopup(); // 페이로드 팝업 열기
     QComboBox* cbLogLevel_{nullptr};
 
     // IPC

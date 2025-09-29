@@ -6,6 +6,9 @@
 #include <nlohmann/json.hpp>  // 수신 CBOR → JSON pretty 로그에 사용
 #include "../include/xml_type_catalog.hpp"
 #include "../include/generic_form_dialog.hpp"
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 
 
 using dkmrtp::ipc::Endpoint;
@@ -34,6 +37,47 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
             bool success = catalog_.parseXmlFile(filePath);
             appendLog(QString("Parse result: %1").arg(success ? "Success" : "Failed"));
         }
+    }
+
+    // Validate cross-type references (report unresolved nested/sequence references)
+    QStringList refWarnings;
+    catalog_.validateAllReferences(refWarnings);
+    for (const QString& w : refWarnings) appendLog(QString("[WRN] %1").arg(w));
+
+    // Verbose diagnostic dump: list types, their fields, resolved schemas and generated sample JSON
+    const bool doVerboseDump = true; // set to false to disable
+    if (doVerboseDump) {
+        appendLog(QString("--- TypeTable Diagnostic Dump (count=%1) ---").arg(catalog_.typeTable.size()));
+        for (const QString& tname : catalog_.typeTable.keys()) {
+            appendLog(QString("[DBG] Type: %1").arg(tname));
+            const XTypeSchema& s = catalog_.getType(tname);
+            for (const XField& f : s.fields) {
+                appendLog(QString("[DBG]   field: %1 kind=%2 nested=%3 seqElem=%4 isSeqStr=%5 isSeqPrim=%6 enumCount=%7")
+                          .arg(f.name)
+                          .arg(f.kind)
+                          .arg(f.nestedType)
+                          .arg(f.sequenceElementType)
+                          .arg(f.isSequenceOfString)
+                          .arg(f.isSequenceOfPrimitive)
+                          .arg(f.enumVals.size()));
+            }
+            // resolved schema
+            XTypeSchema resolved = catalog_.resolveType(tname);
+            if (resolved.fields.isEmpty()) {
+                appendLog(QString("[DBG]   resolved: <empty> for %1").arg(tname));
+            } else {
+                appendLog(QString("[DBG]   resolved schema for %1: fields=%2").arg(tname).arg(resolved.fields.size()));
+                for (const XField& rf : resolved.fields) {
+                    appendLog(QString("[DBG]     -> %1 kind=%2 nested=%3 seqElem=%4 isSeqStr=%5 isSeqPrim=%6 enumCount=%7")
+                              .arg(rf.name).arg(rf.kind).arg(rf.nestedType).arg(rf.sequenceElementType).arg(rf.isSequenceOfString).arg(rf.isSequenceOfPrimitive).arg(rf.enumVals.size()));
+                }
+            }
+            // sample json
+            QJsonObject sample = generateSampleJsonObject(tname);
+            QJsonDocument doc(sample);
+            appendLog(QString("[DBG]   sample: %1").arg(QString::fromUtf8(doc.toJson(QJsonDocument::Compact))));
+        }
+        appendLog(QString("--- End Diagnostic Dump ---"));
     }
     
     // 파싱 완료 후 타입 개수 확인
@@ -150,6 +194,169 @@ void MainWindow::updateTypeComboBoxes() {
     }
 }
 
+// Helper: create a sample JSON value for a given XField according to xml_parsing_rule.md and 개발가이드
+// Helper: create a sample JSON value for a given XField according to xml_parsing_rule.md and 개발가이드
+// This variant accepts a MainWindow* so it can route warnings to the UI log (appendLog).
+static QJsonValue makeSampleForField(const XmlTypeCatalog& catalog, const XField& fld, int& idCounter, MainWindow* owner) {
+    // Remove A_ prefix for string tokens when creating friendly defaults
+    auto tokenFromName = [](const QString& name) {
+        if (name.startsWith("A_")) return name.mid(2);
+        return name;
+    };
+
+    // Prefer explicit kind-based handling first. If metadata is inconsistent (e.g. both
+    // kind=="string" and isSequenceOfString==true) prefer 'kind' but also warn.
+    // Normalize kind string for flexible matching (handles T_* typedef names)
+    const QString lk = fld.kind.toLower();
+
+    if (lk == "string" || lk.contains("char")) {
+        if (fld.isSequenceOfString && owner) owner->appendLog(QString("[WRN] Field %1: has kind=string but also marked isSequenceOfString; treating as string").arg(fld.name));
+        return QJsonValue(tokenFromName(fld.name));
+    }
+
+    if (lk == "enum") {
+        if (!fld.enumVals.isEmpty()) return QJsonValue(fld.enumVals.first());
+        return QJsonValue(QString());
+    }
+
+    if (lk.contains("int") || lk.contains("uint")) {
+        return QJsonValue(1);
+    }
+
+    if (lk.contains("float") || lk.contains("double")) {
+        return QJsonValue(1.0);
+    }
+
+    if (lk == "boolean" || lk == "bool" || lk.contains("t_boolean") || lk.contains("t_boolean") || lk.contains("t_boolean")) {
+        return QJsonValue(false);
+    }
+
+    // Sequence checks handled after primitive/string/enum handling
+    if (fld.isSequenceOfString) {
+        // string sequence -> produce one string element
+        return QJsonArray{QJsonValue(tokenFromName(fld.name))};
+    }
+
+    if (fld.isSequenceOfPrimitive) {
+        // primitive sequence -> produce one element depending on sequenceElementType
+        QJsonArray arr;
+        const QString elem = fld.sequenceElementType;
+        if (elem.startsWith("int") || elem.startsWith("uint")) arr.append(1);
+        else if (elem.startsWith("float") || elem == "double") arr.append(1.0);
+        else arr.append(1);
+        return arr;
+    }
+
+    if (fld.kind.startsWith("int") || fld.kind == "int32" || fld.kind == "int16" || fld.kind == "int64") {
+        return QJsonValue(1);
+    }
+
+    if (fld.kind == "float" || fld.kind == "double" || fld.kind == "float32" || fld.kind == "float64") {
+        return QJsonValue(1.0);
+    }
+
+    if (fld.kind == "boolean" || fld.kind == "T_Boolean") {
+        return QJsonValue(false);
+    }
+
+    if (fld.kind == "enum") {
+        if (!fld.enumVals.isEmpty()) return QJsonValue(fld.enumVals.first());
+        return QJsonValue(QString());
+    }
+
+    if (fld.kind == "struct") {
+        // Resolve nested type schema and recurse. If the resolved type is a single-field typedef
+        // to a primitive/string/sequence, unwrap and emit the primitive directly (to avoid
+        // emitting an object where a string/primitive is expected).
+        XTypeSchema resolved = catalog.resolveType(fld.nestedType);
+        if (resolved.fields.size() == 1) {
+            const XField& sf = resolved.fields.first();
+            // If the single nested field is effectively primitive/string/sequence, unwrap it
+            const bool isPrimitiveLike = (sf.kind == "string" || sf.isSequenceOfString || sf.isSequenceOfPrimitive || sf.kind.startsWith("int") || sf.kind.startsWith("uint") || sf.kind.startsWith("float") || sf.kind == "double" || sf.kind == "boolean" || sf.kind == "T_Boolean" || sf.kind == "enum");
+            if (isPrimitiveLike) {
+                if (owner) owner->appendLog(QString("[WRN] Field %1: resolved struct %2 is a single-field typedef; emitting primitive for compatibility").arg(fld.name).arg(fld.nestedType));
+                return makeSampleForField(catalog, sf, idCounter, owner);
+            }
+        }
+
+        QJsonObject obj;
+        for (const XField& nf : resolved.fields) {
+            obj.insert(nf.name, makeSampleForField(catalog, nf, idCounter, owner));
+        }
+        return obj;
+    }
+
+    if (fld.kind == "sequence") {
+        QJsonArray arr;
+        if (!fld.nestedType.isEmpty()) {
+            // sequence of struct - but the nested struct may be a single-field typedef -> unwrap
+            XTypeSchema resolved = catalog.resolveType(fld.nestedType);
+            if (resolved.fields.size() == 1) {
+                const XField& sf = resolved.fields.first();
+                const bool isPrimitiveLike = (sf.kind == "string" || sf.isSequenceOfString || sf.isSequenceOfPrimitive || sf.kind.startsWith("int") || sf.kind.startsWith("uint") || sf.kind.startsWith("float") || sf.kind == "double" || sf.kind == "boolean" || sf.kind == "T_Boolean" || sf.kind == "enum");
+                if (isPrimitiveLike) {
+                    if (owner) owner->appendLog(QString("[WRN] Field %1: sequence of %2 resolves to single-field typedef; emitting sequence of primitive").arg(fld.name).arg(fld.nestedType));
+                    arr.append(makeSampleForField(catalog, sf, idCounter, owner));
+                    return arr;
+                }
+            }
+
+            QJsonObject elem;
+            for (const XField& nf : resolved.fields) elem.insert(nf.name, makeSampleForField(catalog, nf, idCounter, owner));
+            arr.append(elem);
+            return arr;
+        } else if (!fld.sequenceElementType.isEmpty()) {
+            // already handled isSequenceOfPrimitive/isSequenceOfString above; fallback
+            arr.append(1);
+            return arr;
+        }
+    }
+
+    // If field kind is struct or otherwise unresolved, try resolving nestedType if present
+    if (!fld.nestedType.isEmpty()) {
+        XTypeSchema resolved = catalog.resolveType(fld.nestedType);
+        if (!resolved.fields.isEmpty()) {
+            // If resolved is a single-field typedef, unwrap
+            if (resolved.fields.size() == 1) {
+                return makeSampleForField(catalog, resolved.fields.first(), idCounter, owner);
+            }
+            QJsonObject obj;
+            for (const XField& nf : resolved.fields) obj.insert(nf.name, makeSampleForField(catalog, nf, idCounter, owner));
+            return obj;
+        } else {
+            if (owner) owner->appendLog(QString("[WRN] makeSampleForField: unable to resolve nestedType '%1' for field %2").arg(fld.nestedType).arg(fld.name));
+        }
+    }
+
+    // Fallback: log unresolved kind and return empty string (user can edit payload)
+    if (owner) owner->appendLog(QString("[WRN] makeSampleForField: unresolved field %1 kind='%2' nestedType='%3'").arg(fld.name).arg(fld.kind).arg(fld.nestedType));
+    return QJsonValue(QString());
+}
+
+// Implementation of member function declared in header: generateSampleJsonObject
+QJsonObject MainWindow::generateSampleJsonObject(const QString& typeName) {
+    QJsonObject out;
+    // basic guard
+    if (!catalog_.hasType(typeName)) {
+        appendLog(QString("[WRN] generateSampleJsonObject: unknown type %1").arg(typeName));
+        return out;
+    }
+
+    XTypeSchema schema = catalog_.resolveType(typeName);
+    if (schema.fields.empty()) {
+        appendLog(QString("[WRN] generateSampleJsonObject: resolved schema empty for %1").arg(typeName));
+        return out;
+    }
+    int idCounter = sampleIdCounter_;
+    for (const XField& f : schema.fields) {
+        // Use a copy of idCounter so nested calls can increment consistently
+        out.insert(f.name, makeSampleForField(catalog_, f, idCounter, this));
+    }
+    // update persistent counter so next sample increments ids
+    sampleIdCounter_ = idCounter + 1;
+    return out;
+}
+
 void MainWindow::onTopicSelected(const QString& typeName) {
     if (typeName.isEmpty()) return;
     
@@ -219,8 +426,12 @@ void MainWindow::setupUi()
     tl->addWidget(btnOpenForm_);
     tl->addStretch();
     
-    // connect는 updateTypeComboBoxes()에서 처리
-    
+    // NOTE: The UI requirement is to hide the Topic Type Selection area while preserving
+    // underlying functionality. We therefore keep the group in the widget tree but hide it.
+    gbTopic->setVisible(false);
+    btnOpenForm_->setVisible(false);
+
+    // connect is handled in updateTypeComboBoxes()
     lay->addWidget(gbTopic);
 
     // Participant
@@ -244,14 +455,17 @@ void MainWindow::setupUi()
     auto* il = new QGridLayout(gbIO);
     leTopic_ = new QLineEdit("HelloTopic");
     cbType_ = new QComboBox();
-    cbType_->setEditable(true);
+    cbType_->setEditable(false); // user should not edit type text
     // 파싱 후에 updateTypeComboBoxes()에서 채움
 
     lePubName_ = new QLineEdit("pub1");
     leSubName_ = new QLineEdit("sub1");
-    tePayload_ = new QTextEdit("Hello from UI");
-    tePayload_->setReadOnly(true);
+    // Payload must be editable by the user; make it writable
+    tePayload_ = new QTextEdit("{}");
+    tePayload_->setReadOnly(false);
     tePayload_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    // Add a small button beside payload to open a popup dialog with a large editor
+    btnPayloadPopup_ = new QPushButton("Open Payload");
     btnWriter_ = new QPushButton("Create Writer");
     btnReader_ = new QPushButton("Create Reader");
     btnPub_ = new QPushButton("Publish");
@@ -277,9 +491,15 @@ void MainWindow::setupUi()
     r++;
     il->addWidget(new QLabel("payload"), r, 0);
     il->addWidget(tePayload_, r, 1);
+    il->addWidget(btnPayloadPopup_, r, 2);
     r++;
     il->addWidget(btnPub_, r, 1);
-    lay->addWidget(gbIO);
+    // Make the IO and Log sections resizable via a vertical splitter so payload can be resized by user
+    auto* splitter = new QSplitter(Qt::Vertical);
+    splitter->addWidget(gbIO);
+    // Log level + 로그 패널
+    auto* logContainer = new QWidget;
+    auto* logLayout = new QVBoxLayout(logContainer);
 
     // Log level + 로그 패널
     auto* ll = new QHBoxLayout();
@@ -290,16 +510,19 @@ void MainWindow::setupUi()
     ll->addStretch();
     lay->addLayout(ll);
 
-    auto* gbLog = new QGroupBox("Log");
-    auto* lg = new QVBoxLayout(gbLog);
     teLog_ = new QTextEdit();
     teLog_->setReadOnly(true);
     teLog_->setMinimumHeight(160);
     btnClearLog_ = new QPushButton("Clear Log");
-    lg->addWidget(teLog_);
-    lg->addWidget(btnClearLog_);
-    lay->addWidget(gbLog);
-    
+    logLayout->addWidget(teLog_);
+    logLayout->addWidget(btnClearLog_);
+    logContainer->setLayout(logLayout);
+
+    splitter->addWidget(logContainer);
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 1);
+    lay->addWidget(splitter);
+
     // DDS 엔티티 전체 초기화 버튼
     btnClearDds_ = new QPushButton("Clear DDS Entities");
     lay->addWidget(btnClearDds_);
@@ -314,8 +537,35 @@ void MainWindow::setupUi()
     connect(btnReader_, &QPushButton::clicked, this, &MainWindow::onCreateReader);
     connect(btnPub_, &QPushButton::clicked, this, &MainWindow::onPublishSample);
     connect(cbLogLevel_, qOverload<int>(&QComboBox::currentIndexChanged), this, &MainWindow::onLogLevelChanged);
+    // When a type is selected or the text changed in the Pub/Sub 'type' combo,
+    // auto-generate a sample JSON for types that start with 'C_' and populate
+    // the payload editor so the user can modify it.
+    auto populateFromCombo = [this]() {
+        // Prefer the explicit userData (currentData) if present, otherwise use the visible text.
+        QString fullTypeName = cbType_->currentData().toString();
+        if (fullTypeName.isEmpty()) fullTypeName = cbType_->currentText();
+        fullTypeName = fullTypeName.trimmed();
+        // The stored value is a fully-qualified name (e.g. P_Alarms_PSM::C_Actual_Alarm).
+        // Check only the leaf (after ::) for the C_ prefix, but use fullTypeName for lookup.
+        const QString leaf = fullTypeName.split("::").last();
+        if (leaf.startsWith("C_")) {
+            QJsonObject sample = generateSampleJsonObject(fullTypeName);
+            QJsonDocument doc(sample);
+            tePayload_->setPlainText(QString::fromUtf8(doc.toJson(QJsonDocument::Indented)));
+            appendLog(QString("Sample JSON populated for type %1").arg(fullTypeName));
+            // Update topic name to type's leaf without C_ prefix
+            const QString topicName = leaf.mid(2); // remove leading C_
+            if (!topicName.isEmpty()) {
+                leTopic_->setText(topicName);
+                appendLog(QString("Topic auto-set to %1 due to type selection").arg(topicName));
+            }
+        }
+    };
+    connect(cbType_, qOverload<int>(&QComboBox::currentIndexChanged), this, [populateFromCombo](int) { Q_UNUSED(populateFromCombo); populateFromCombo(); });
+    connect(cbType_, qOverload<const QString&>(&QComboBox::currentTextChanged), this, [populateFromCombo](const QString&) { Q_UNUSED(populateFromCombo); populateFromCombo(); });
     connect(btnClearDds_, &QPushButton::clicked, this, &MainWindow::onClearDdsEntities);
     connect(btnClearLog_, &QPushButton::clicked, this, &MainWindow::onClearLog);
+    connect(btnPayloadPopup_, &QPushButton::clicked, this, &MainWindow::onOpenPayloadPopup);
 
     QList<QPushButton*> btns = {btnConn_,   btnPart_,   btnPublisher_, btnSubscriber_, btnWriter_,
                                 btnReader_, btnPub_,  btnClearDds_,  btnClearLog_};
@@ -324,6 +574,37 @@ void MainWindow::setupUi()
     }
 
     statusBar()->showMessage("Ready");
+}
+
+void MainWindow::onOpenPayloadPopup()
+{
+    // Popup dialog that shows a large editable payload editor. Contents are synced when opening.
+    QDialog dlg(this);
+    dlg.setWindowTitle("Payload Editor");
+    dlg.resize(800, 600);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* label = new QLabel(QString("Editing payload for type: %1").arg(cbType_->currentText()));
+    label->setStyleSheet("font-weight:bold;padding:4px;");
+    auto* editor = new QTextEdit;
+    editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    editor->setPlainText(tePayload_->toPlainText());
+    lay->addWidget(label);
+    lay->addWidget(editor);
+    auto* btns = new QHBoxLayout;
+    auto* ok = new QPushButton("OK");
+    auto* cancel = new QPushButton("Cancel");
+    btns->addStretch();
+    btns->addWidget(ok);
+    btns->addWidget(cancel);
+    lay->addLayout(btns);
+
+    connect(ok, &QPushButton::clicked, &dlg, [&]() {
+        tePayload_->setPlainText(editor->toPlainText());
+        dlg.accept();
+    });
+    connect(cancel, &QPushButton::clicked, &dlg, [&]() { dlg.reject(); });
+
+    dlg.exec();
 }
 
 void MainWindow::onClearLog()

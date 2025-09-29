@@ -68,10 +68,38 @@ struct WriterHolder : public IWriterHolder {
     void write_any(const AnyData& data) override
     {
         try {
-            writer->write(std::any_cast<const T&>(data));
+            // std::any에서 void*를 추출
+            if (!data.has_value()) {
+                LOG_ERR("WriterHolder", "write_any: data is empty");
+                throw std::invalid_argument("WriterHolder: data is empty");
+            }
+
+            // std::any에서 void*를 추출하고, 기대하는 타입으로 변환
+            void* raw_data = std::any_cast<void*>(data);
+            if (!raw_data) {
+                LOG_ERR("WriterHolder", "write_any: extracted data is null");
+                throw std::invalid_argument("WriterHolder: extracted data is null");
+            }
+
+            // void*를 기대하는 타입으로 변환
+            const T* typed_data = static_cast<const T*>(raw_data);
+            if (!typed_data) {
+                LOG_ERR("WriterHolder", "write_any: failed to cast data to expected type");
+                throw std::bad_any_cast();
+            }
+
+            LOG_DBG("WriterHolder", "write_any: data cast successful. Writing data to writer.");
+
+            // RTI writer 호출
+            writer->write(*typed_data);
+            LOG_DBG("WriterHolder", "write_any: write successful.");
         } catch (const std::bad_any_cast& e) {
+            LOG_ERR("WriterHolder", "write_any: bad_any_cast exception: %s", e.what());
             throw std::runtime_error("WriterHolder: bad_any_cast for type " + dds::topic::topic_type_name<T>::value() +
-                                     ": " + e.what());
+                                    ": " + e.what());
+        } catch (const std::exception& e) {
+            LOG_ERR("WriterHolder", "write_any: exception: %s", e.what());
+            throw;
         }
     }
 
@@ -149,8 +177,11 @@ struct ReaderHolder : IReaderHolder {
         {
             if (!cb) return;
             for (auto s : r.take()) {
-                if (!s.info().valid()) continue;
-                cb(topic, dds::topic::topic_type_name<T>::value(), AnyData(s.data()));
+                // 이전: cb(topic, dds::topic::topic_type_name<T>::value(), AnyData(s.data()));
+                // 수정: heap에 소유 복사하여 shared_ptr<void>로 전달 (callback은 해당 포인터를 사용해 dds_to_json 호출)
+                auto sp = std::make_shared<T>(s.data());            // 소유 복사
+                std::shared_ptr<void> pv = sp;                      // shared_ptr<T> -> shared_ptr<void> 변환
+                cb(topic, dds::topic::topic_type_name<T>::value(), AnyData(pv));
             }
         }
 

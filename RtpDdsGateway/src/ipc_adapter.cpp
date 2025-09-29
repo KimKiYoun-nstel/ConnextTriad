@@ -17,6 +17,10 @@
 #include <nlohmann/json.hpp>
 #include <any>
 
+
+#include "AlarmMsg.hpp"
+#include "AlarmMsgPlugin.hpp"
+
 namespace rtpdds
 {
 
@@ -264,7 +268,11 @@ void IpcAdapter::install_callbacks()
 
         const void* sample_ptr = nullptr;
         try {
-            sample_ptr = std::any_cast<const void*>(data);
+            auto sp = std::any_cast<std::shared_ptr<void>>(data);
+            sample_ptr = sp.get();
+            if (!sample_ptr) {
+                LOG_ERR("IPC", "AnyData contains null pointer for type=%s", type_name.c_str());
+            }
         } catch (const std::bad_any_cast&) {
             LOG_ERR("IPC", "AnyData is not const void* for type=%s", type_name.c_str());
         }
