@@ -49,17 +49,18 @@
 
 ## DDS 코드 생성 정책
 
-- `types/` 하위의 모든 `.idl` 파일은 **소스 파일**이며, 반드시 버전 관리에 커밋해야 합니다.
+- `IdlKit/Idl` 하위의 모든 `.idl` 파일은 **소스 파일**이며, 반드시 버전 관리에 커밋해야 합니다.
 - `rtiddsgen`이 생성한 코드는(`*.cxx`, `*Plugin.*`, `*Support.*`) 빌드 산출물로, 커밋하지 않음
 - 생성 파일은 직접 수정 금지, 변경 필요 시 `.idl`을 수정 후 재생성
 - Copilot은 생성 코드 직접 수정 제안 금지, 반드시 IDL 정의를 통한 변경만 안내
-- DDS 생성 헤더(`generated/*.h`)는 데이터 타입/구조 추론에만 사용
+- 생성 코드: `<build>/idlkit/gen` / XML: `<build>/idlkit/xml` 반영.
+- DDS 생성 헤더(`gen/*.hpp`)는 데이터 타입/구조 추론에만 사용
 - DDS 생성 소스(`*.cxx`, `*Plugin.*`, `*Support.*`)는 무시, 직접 수정/참조 금지
 - 스키마 변경은 항상 `.idl` 파일에서만, 이후 코드 재생성
 
 ## Copilot 컨텍스트 힌트
 
-- 데이터 타입 추론 시 `generated/*.h`만 참고, `generated/*.cxx`, `*Plugin.*`, `*Support.*`는 참조 금지
+- 데이터 타입 추론 시 `<build>/idlkit/gen/*.hpp`만 참고, `<build>/idlkit/gen/*.cxx`, `*Plugin.*`, `*Support.*`는 참조 금지
 - 신규 기능 제안 전 `RtpDdsGateway/include/`, `DkmRtpIpc/include/`에 유사 기능이 있는지 먼저 검색
 - 명시적 요청 없으면 빌드/테스트 실행 금지
 - `TOPICS_AND_COMMANDS.md`를 topics/types 및 UI↔DDS 명령의 단일 진실원천으로 간주, 반드시 준수

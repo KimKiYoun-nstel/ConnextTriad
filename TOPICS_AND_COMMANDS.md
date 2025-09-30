@@ -9,13 +9,13 @@
 
 | Topic(실명)      | IDL Type  | Header(ref)           | Direction | Domain | Partition | QoS(Lib::Profile)            | Key Fields | Converter                | Registry Key |
 | -------------- | --------- | --------------------- | --------- | ------ | --------- | ---------------------------- | ---------- | ------------------------ | ------------ |
-| `<TBD_Alarm>`  | AlarmMsg  | generated/AlarmMsg.h  | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | `id?`      | DataConverter<AlarmMsg>  | `alarm`      |
-| `<TBD_String>` | StringMsg | generated/StringMsg.h | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | —          | DataConverter<StringMsg> | `text`       |
-| P_Alarms_PSM::C_Actual_Alarm | P_Alarms_PSM::C_Actual_Alarm | generated/Alarms_PSM.h | Pub/Sub | 0 | default | TriadQosLib::DefaultReliable | 복합키(see IDL) | DataConverter<P_Alarms_PSM::C_Actual_Alarm> | actual_alarm |
+| `<TBD_Alarm>`  | AlarmMsg  | <build>/Idlkit/gen/AlarmMsg.hpp  | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | `id?`      | DataConverter<AlarmMsg>  | `alarm`      |
+| `<TBD_String>` | StringMsg | <build>/Idlkit/gen/StringMsg.hpp | Pub/Sub   | 0      | default   | TriadQosLib::DefaultReliable | —          | DataConverter<StringMsg> | `text`       |
+| P_Alarms_PSM::C_Actual_Alarm | P_Alarms_PSM::C_Actual_Alarm | <build>/Idlkit/gen/Alarms_PSM.hpp | Pub/Sub | 0 | default | TriadQosLib::DefaultReliable | 복합키(see IDL) | DataConverter<P_Alarms_PSM::C_Actual_Alarm> | actual_alarm |
 
 > 규칙
 >
-> * 생성물은 **헤더(`generated/*.h`)만 참조**, **소스(`*.cxx`, `*Plugin.*`, `*Support.*`)는 참조/수정 금지**.
+> * 생성물은 **헤더(`<build>/Idlkit/gen/*.hpp`)만 참조**, **소스(`*.cxx`, `*Plugin.*`, `*Support.*`)는 참조/수정 금지**.
 > * Topic 이름/Domain/Partition/QoS/Key는 실제 값으로 채워 넣는다.
 
 ### 1.1 QoS 프로파일 표
@@ -165,7 +165,8 @@
 
 ### 2.5 기타 참고사항
 
-- 모든 메시지는 CBOR로 직렬화되어 IPC로 송수신, gateway 내부에서는 nlohmann::json으로 파싱
+* 모든 메시지는 CBOR로 직렬화되어 IPC로 송수신, gateway 내부에서는 nlohmann::json으로 파싱
+
 * 오류 응답 시: `{ "ok": false, "err": <code>, "msg": "<reason>" }` 형태로 반환
 * 실제 payload 구조(예: AlarmMsg 등)는 각 topic/type에 따라 별도 정의됨
 
@@ -245,7 +246,7 @@
 
 * [ ] NGVA/DDS 표준 위반 없음
 * [ ] `dds_manager` 외 직접 DDS 엔티티 조작 금지
-* [ ] `generated/*.h`만 참조, `*.cxx`/`*Plugin.*`/`*Support.*` 참조 금지
+* [ ] `<build>/Idlkit/gen/*.hpp`만 참조, `*.cxx`/`*Plugin.*`/`*Support.*` 참조 금지
 * [ ] 신규 기능은 중복 금지, 기존 로직 재사용/확장 우선
 
 ---
