@@ -14,6 +14,10 @@
 #include "dds_manager.hpp"
 #include "dds_type_registry.hpp"
 #include "ipc_adapter.hpp"
+// async pipeline
+#include "async/async_event_processor.hpp"
+#include "async/sample_event.hpp"
+#include "async/receiver_factory.hpp"
 
 namespace rtpdds
 {
@@ -40,5 +44,10 @@ public:
 private:
     DdsManager mgr_{};              ///< DDS 엔티티/샘플 관리
     std::unique_ptr<IpcAdapter> ipc_{}; ///< IPC 명령 변환/콜백 어댑터
+    
+    // 추가: DDS/IPC 이벤트를 처리할 소비자 스레드
+    async::AsyncEventProcessor async_;
+    async::DdsReceiveMode rx_mode_{async::DdsReceiveMode::Listener};
+    std::unique_ptr<async::IDdsReceiver> rx_{};
 };
 }  // namespace rtpdds

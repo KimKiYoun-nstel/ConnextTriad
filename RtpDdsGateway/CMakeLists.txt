@@ -1,8 +1,13 @@
 ﻿
-file(GLOB SRC_FILES "src/*.cpp")
-add_library(RtpDdsCore STATIC
-  ${SRC_FILES}
+file(GLOB_RECURSE SRC_FILES
+  CONFIGURE_DEPENDS
+  "src/*.cpp"
 )
+add_library(RtpDdsCore STATIC ${SRC_FILES})
+
+
+# Require at least C++14 for this target
+target_compile_features(RtpDdsCore PUBLIC cxx_std_14)
 
 target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_include_directories(RtpDdsCore PUBLIC include)

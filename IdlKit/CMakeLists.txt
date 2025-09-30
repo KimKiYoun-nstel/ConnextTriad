@@ -71,7 +71,7 @@ add_custom_target(idl_type_registry DEPENDS ${GEN_DIR}/idl_type_registry.hpp ${G
 # JSON 바인딩 생성
 add_custom_command(
   OUTPUT ${GEN_DIR}/idl_json_bind.hpp ${GEN_DIR}/idl_json_bind.cpp
-  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/emit_jsonbind.py ${GEN_DIR} ${XML_DIR}
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/emit_jsonbind.py --out-dir ${GEN_DIR} --xml-dir ${XML_DIR}
   # Ensure per-IDL headers and the auto-registry/umbrella header are generated first.
   DEPENDS ${GEN_HEADERS} ${XML_OUTPUTS} ${GEN_DIR}/idl_type_registry.hpp ${GEN_DIR}/idl_install_factories.cpp ${GEN_DIR}/idl_generated_includes.hpp
   COMMENT "Emit JSON bindings from XML"

@@ -14,6 +14,7 @@
 #include "dkmrtp_ipc_messages.hpp"
 #include "dkmrtp_ipc_types.hpp"
 #include <string>
+#include "async/sample_event.hpp"
 namespace rtpdds
 {
 class DdsManager;
@@ -29,6 +30,15 @@ class IpcAdapter {
 public:
     /** DdsManager 참조로 어댑터 생성 */
     explicit IpcAdapter(DdsManager& mgr);
+    
+    // 추가: Gateway의 소비자 스레드가 호출하여 IPC 이벤트 전송을 수행
+    void emit_evt_from_sample(const async::SampleEvent& ev);
+
+    // 2단계: 소비자 스레드로 보낼 post 함수 주입
+    void set_command_post(std::function<void(const async::CommandEvent&)> f);
+
+    // 2단계: 소비자 스레드에서 호출되는 실제 처리
+    void process_request(const async::CommandEvent& ev);
     /** 자원 해제 및 종료 */
     ~IpcAdapter();
     /** 서버 모드 시작 (bind/port 지정) */
@@ -43,5 +53,6 @@ private:
     void install_callbacks();
     DdsManager& mgr_;              ///< DDS 엔티티/샘플 관리 참조
     dkmrtp::ipc::DkmRtpIpc ipc_;   ///< IPC 통신 객체
+    std::function<void(const async::CommandEvent&)> post_cmd_; // command post sink
 };
 }  // namespace rtpdds
