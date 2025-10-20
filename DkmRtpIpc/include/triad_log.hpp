@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #include <cstring>
+#include <vector>
 
 namespace triad {
 
@@ -72,8 +73,11 @@ namespace triad {
         if ((int)lvl < g_level())
             return;
 
-        char body[2048];
-        std::vsnprintf(body, sizeof(body), fmt, ap);
+    // Use a larger dynamic buffer to avoid truncating long log messages (e.g. large JSON dumps).
+    // 16 KiB should be sufficient for most diagnostic logs; if larger logs are needed,
+    // consider streaming to a file or chunking the output.
+    std::vector<char> body(16 * 1024);
+    std::vsnprintf(body.data(), body.size(), fmt, ap);
 
         auto now = std::chrono::system_clock::now();
         std::time_t tt = std::chrono::system_clock::to_time_t(now);
@@ -85,9 +89,9 @@ namespace triad {
         std::size_t tid =
             std::hash<std::thread::id>{}(std::this_thread::get_id());
 
-        std::lock_guard<std::mutex> lk(g_mx());
-        std::fprintf(stderr, "%s[%s] [%s] [tid:%zu] [%s] [%s:%d] %s\033[0m\n", color_code(lvl), ts, s(lvl), tid,
-                     tag ? tag : "-", base_filename(file), line, body);
+    std::lock_guard<std::mutex> lk(g_mx());
+    std::fprintf(stderr, "%s[%s] [%s] [tid:%zu] [%s] [%s:%d] %s\033[0m\n", color_code(lvl), ts, s(lvl), tid,
+             tag ? tag : "-", base_filename(file), line, body.data());
     }
 
     inline void logf(Lvl lvl, const char *tag, const char *file, int line, const char *fmt, ...) {

@@ -5,6 +5,8 @@ project(ConnextTriad LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(BUILD_UI "Build desktop UI" OFF)
+
 # USE_CONNEXT auto-on if NDDSHOME present
 
 # NDDSHOME 경로 출력 (항상 출력)
@@ -25,7 +27,9 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_subdirectory(IdlKit)
 add_subdirectory(DkmRtpIpc)
 add_subdirectory(RtpDdsGateway)
-add_subdirectory(ConnextControlUI)
+if(BUILD_UI)
+  add_subdirectory(ConnextControlUI)
+endif()
 
 include_directories(${CMAKE_SOURCE_DIR}/third_party)
 

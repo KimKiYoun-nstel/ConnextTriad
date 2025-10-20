@@ -64,3 +64,8 @@
 - 신규 기능 제안 전 `RtpDdsGateway/include/`, `DkmRtpIpc/include/`에 유사 기능이 있는지 먼저 검색
 - 명시적 요청 없으면 빌드/테스트 실행 금지
 - `TOPICS_AND_COMMANDS.md`를 topics/types 및 UI↔DDS 명령의 단일 진실원천으로 간주, 반드시 준수
+
+- 빌드/생성 산출물 경로 상수:
+  - IDL 생성 헤더: <build>/idlkit/gen/*.hpp  (참조 OK)
+  - IDL 생성 소스: <build>/idlkit/gen/*.{cxx,?*Plugin.*,?*Support.*}  (수정/커밋 금지)
+- Connext 버전 상수: 7.5.x (API/옵션 설명 시 이 버전을 전제로 답변)

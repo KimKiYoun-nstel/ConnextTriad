@@ -387,3 +387,5 @@ generated/*Support.*
 ## Custom project output
 build/
 out/
+
+.zip

@@ -33,6 +33,7 @@ void init_dds_type_registry();
 // Topic Holder: 토픽 객체를 타입 안전하게 보관/관리하기 위한 추상 인터페이스
 struct ITopicHolder {
     virtual ~ITopicHolder() = default;
+    virtual void set_qos(const dds::topic::qos::TopicQos& q) {}
 };
 
 /**
@@ -43,6 +44,7 @@ template <typename T>
 struct TopicHolder : public ITopicHolder {
     std::shared_ptr<dds::topic::Topic<T> > topic;
     explicit TopicHolder(std::shared_ptr<dds::topic::Topic<T> > t) : topic(std::move(t)) {}
+    void set_qos(const dds::topic::qos::TopicQos& q) override { if (topic) topic->qos(q); }
 };
 
 // Writer Holder: 데이터 라이터 객체를 타입 안전하게 보관/관리하기 위한 추상 인터페이스
@@ -54,6 +56,7 @@ struct IWriterHolder {
      * @throws std::bad_any_cast 타입 불일치 시 예외
      */
     virtual void write_any(const AnyData& data) = 0;
+    virtual void set_qos(const dds::pub::qos::DataWriterQos& q) {}
 };
 
 /**
@@ -103,6 +106,8 @@ struct WriterHolder : public IWriterHolder {
         }
     }
 
+    void set_qos(const dds::pub::qos::DataWriterQos& q) override { if (writer) writer->qos(q); }
+
     struct WriterHolderListener : dds::pub::NoOpDataWriterListener<T> {
         std::string topic_;
         explicit WriterHolderListener(std::string t) : topic_(std::move(t)) {}
@@ -148,6 +153,7 @@ struct IReaderHolder {
 
     // 나중에 샘플 콜백 세팅
     virtual void set_sample_callback(SampleCallback cb) = 0;
+    virtual void set_qos(const dds::sub::qos::DataReaderQos& q) {}
 };
 
 /**
@@ -235,6 +241,8 @@ struct ReaderHolder : IReaderHolder {
         }
         listener_guard = lis;
     }
+
+    void set_qos(const dds::sub::qos::DataReaderQos& q) override { if (reader) reader->qos(q); }
 };
 
 using TopicFactory = std::function<std::shared_ptr<ITopicHolder>(dds::domain::DomainParticipant&, const std::string&)>;

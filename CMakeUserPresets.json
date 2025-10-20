@@ -2,63 +2,38 @@
   "version": 3,
   "configurePresets": [
     {
-      "name": "Qt-Debug",
-      "inherits": "Qt-Default",
-      "binaryDir": "${sourceDir}/out/build/debug",
-      "toolchainFile": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
+      "name": "vs2022-ninja-user",
+      "inherits": "vs2022-ninja",
       "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug" // 필요 시 사용자 오버라이드만
+      }
+    },
+    {
+      "name": "vs2022-msvc-user",
+      "inherits": "vs2022-msvc"
+    },
+    {
+      "name": "vs2022-msvc-with-qt-user",
+      "inherits": "vs2022-msvc",
+      "cacheVariables": {
+        "BUILD_UI": "ON",
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS": "-DQT_QML_DEBUG",
-        "VCPKG_TARGET_TRIPLET": "x64-windows",
-        "PARSER_LINK_MODE": "dynamic"
-      },
-      "environment": {
-        "QML_DEBUG_ARGS": "-qmljsdebugger=file:{a3202797-7b02-420f-94ce-881ecfb5b631},block"
-      }
-    },
-    {
-      "name": "Qt-Release",
-      "inherits": "Qt-Default",
-      "binaryDir": "${sourceDir}/out/build/release",
-      "toolchainFile": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_TARGET_TRIPLET": "x64-windows",
-        "PARSER_LINK_MODE": "dynamic"
-      }
-    },
-    {
-      "hidden": true,
-      "name": "Qt-Default",
-      "inherits": "6.9.1_msvc2022_64",
-      "vendor": {
-        "qt-project.org/Default": {
-          "checksum": "Bb7AR9VKZ6X2fuMIw7hafNcnaMA="
-        }
-      }
-    },
-    {
-      "hidden": true,
-      "name": "6.9.1_msvc2022_64",
-      "inherits": "Qt",
-      "environment": {
-        "QTDIR": "C:/Qt/6.9.1/msvc2022_64"
-      },
-      "architecture": {
-        "strategy": "external",
-        "value": "x64"
-      },
-      "generator": "Ninja",
-      "vendor": {
-        "qt-project.org/Version": {
-          "checksum": "03fD+PbilhUO7cvUkGKIxUl7gkU="
-        }
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.9.1/msvc2022_64/lib/cmake"
       }
     }
   ],
-  "vendor": {
-    "qt-project.org/Presets": {
-      "checksum": "yGH15aSYVRZS9dw0AjXdzU4hCr4="
+  "buildPresets": [
+    {
+      "name": "build-ninja-user",
+      "configurePreset": "vs2022-ninja-user"
+    },
+    {
+      "name": "build-msvc-user",
+      "configurePreset": "vs2022-msvc-user"
+    },
+    {
+      "name": "build-msvc-with-qt-user",
+      "configurePreset": "vs2022-msvc-with-qt-user"
     }
-  }
+  ]
 }

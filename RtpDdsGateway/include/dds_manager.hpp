@@ -20,10 +20,12 @@
 #include <unordered_map>
 
 #include <dds/dds.hpp>
+#include <nlohmann/json.hpp>
 
 #include "dds_type_registry.hpp"
 #include "idl_type_registry.hpp"
 #include "type_registry.hpp"
+#include "qos_store.hpp"
 
 
 namespace rtpdds
@@ -49,7 +51,7 @@ struct DdsResult {
 class DdsManager {
 public:
     /** 생성자: 내부 레지스트리/유틸리티 초기화 */
-    DdsManager();
+    explicit DdsManager(const std::string& qos_dir = "qos");
     /** 소멸자: 스마트 포인터 기반 자원 해제 */
     ~DdsManager();
 
@@ -114,6 +116,12 @@ public:
      */
     void set_on_sample(SampleHandler cb);
 
+    // Return available QoS profiles and detailed summary (for IPC get.qos)
+    // Parameters:
+    //  - include_builtin: when true include builtin QoS candidates, otherwise only external providers
+    //  - include_detail: when true include detailed profile info under the "detail" key
+    nlohmann::json list_qos_profiles(bool include_builtin = false, bool include_detail = false) const;
+
     /**
      * @brief 토픽명으로 타입명을 조회합니다.
      * @param topic 토픽명
@@ -127,6 +135,10 @@ public:
     
 private:
     TypeRegistry type_registry_;
+    std::unique_ptr<rtpdds::QosStore> qos_store_;
+
+    // 적용 로깅 보조: 요약 tag/value 문자열
+    static std::string summarize_qos(const rtpdds::QosPack& pack);
     // 도메인ID별 participant
     std::unordered_map<int, std::shared_ptr<dds::domain::DomainParticipant> > participants_;
     // 도메인/이름별 publisher

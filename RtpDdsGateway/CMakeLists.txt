@@ -1,13 +1,12 @@
-﻿
-file(GLOB_RECURSE SRC_FILES
+﻿file(GLOB_RECURSE SRC_FILES
   CONFIGURE_DEPENDS
   "src/*.cpp"
 )
 add_library(RtpDdsCore STATIC ${SRC_FILES})
 
 
-# Require at least C++14 for this target
-target_compile_features(RtpDdsCore PUBLIC cxx_std_14)
+# Require at least C++17 for this target
+target_compile_features(RtpDdsCore PUBLIC cxx_std_17)
 
 target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_include_directories(RtpDdsCore PUBLIC include)
@@ -88,8 +87,8 @@ add_custom_command(TARGET RtpDdsGateway POST_BUILD
 target_compile_definitions(RtpDdsGateway PRIVATE
   IDL_XML_DIR_RELATIVE="types/xml")
 
-# copy QoS xml next to the exe
+# copy entire qos folder next to the exe so runtime can use ./qos
 add_custom_command(TARGET RtpDdsGateway POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-          ${CMAKE_SOURCE_DIR}/qos/qos_profiles.xml
-          $<TARGET_FILE_DIR:RtpDdsGateway>/qos_profiles.xml)
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_SOURCE_DIR}/qos
+          $<TARGET_FILE_DIR:RtpDdsGateway>/qos)

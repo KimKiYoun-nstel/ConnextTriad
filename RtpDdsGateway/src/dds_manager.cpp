@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <type_traits>
 
 #include "dds_manager.hpp"
 #include "dds_type_registry.hpp"
@@ -18,9 +19,25 @@
 #include "sample_factory.hpp"
 
 namespace rtpdds {
-DdsManager::DdsManager()
+// Helper utilities for consistent entry logging across DdsManager public methods.
+static std::string truncate_for_log(const std::string& s, size_t max_len = 200)
+{
+    if (s.size() <= max_len) return s;
+    return s.substr(0, max_len) + "...(len=" + std::to_string(s.size()) + ")";
+}
+
+static void log_entry(const char* fn, const std::string& params)
+{
+    // Use INFO level for important entry tracing so it is visible in normal runs.
+    LOG_INF("DDS", "[ENTRY] %s %s", fn, params.c_str());
+}
+
+DdsManager::DdsManager(const std::string& qos_dir)
 {
     init_dds_type_registry();
+    qos_store_ = std::make_unique<rtpdds::QosStore>(qos_dir);
+    qos_store_->initialize();
+
     LOG_DBG("DDS", "DdsManager initialized. Registered factories:");
 
     LOG_DBG("DDS", "Registered Topic Factories:");
@@ -71,13 +88,23 @@ void DdsManager::clear_entities()
  */
 DdsResult DdsManager::create_participant(int domain_id, const std::string& qos_lib, const std::string& qos_profile)
 {
-    LOG_DBG("DDS", "create_participant(domain_id=%d, qos_lib=%s, qos_profile=%s)", domain_id, qos_lib.c_str(), qos_profile.c_str());
+    log_entry("create_participant", std::string("domain_id=") + std::to_string(domain_id) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     if (participants_.count(domain_id)) {
         LOG_WRN("DDS", "Duplicate participant creation attempt: domain=%d", domain_id);
         return DdsResult(false, DdsErrorCategory::Logic,
                          "Duplicate participant creation not allowed: domain=" + std::to_string(domain_id));
     }
-    auto participant = std::make_shared<dds::domain::DomainParticipant>(domain_id);
+    std::shared_ptr<dds::domain::DomainParticipant> participant;
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            participant = std::make_shared<dds::domain::DomainParticipant>(domain_id, pack->participant);
+            LOG_INF("DDS", "[apply-qos] participant domain=%d lib=%s prof=%s %s", domain_id, qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        }
+    }
+    if (!participant) {
+        participant = std::make_shared<dds::domain::DomainParticipant>(domain_id);
+        LOG_WRN("DDS", "[apply-qos:default] participant domain=%d (lib=%s prof=%s not found)", domain_id, qos_lib.c_str(), qos_profile.c_str());
+    }
     participants_[domain_id] = participant;
     LOG_INF("DDS", "participant created domain=%d", domain_id);
     return DdsResult(true, DdsErrorCategory::None,
@@ -97,7 +124,7 @@ DdsResult DdsManager::create_participant(int domain_id, const std::string& qos_l
 DdsResult DdsManager::create_publisher(int domain_id, const std::string& pub_name, const std::string& qos_lib,
                                        const std::string& qos_profile)
 {
-    LOG_DBG("DDS", "create_publisher(domain_id=%d, pub_name=%s, qos_lib=%s, qos_profile=%s)", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    log_entry("create_publisher", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     if (!participants_.count(domain_id)) {
         DdsResult res = create_participant(domain_id, qos_lib, qos_profile);
         if (!res.ok) return DdsResult(false, DdsErrorCategory::Resource, "Participant creation failed: " + res.reason);
@@ -109,8 +136,17 @@ DdsResult DdsManager::create_publisher(int domain_id, const std::string& pub_nam
             false, DdsErrorCategory::Logic,
             "Duplicate publisher creation not allowed: domain=" + std::to_string(domain_id) + " pub=" + pub_name);
     }
-    // Modern C++11 API: QoS를 명시하지 않으면 default QoS가 자동 적용됨
-    auto publisher = std::make_shared<dds::pub::Publisher>(*participant);
+    std::shared_ptr<dds::pub::Publisher> publisher;
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            publisher = std::make_shared<dds::pub::Publisher>(*participant, pack->publisher);
+            LOG_INF("DDS", "[apply-qos] publisher domain=%d pub=%s lib=%s prof=%s %s", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        }
+    }
+    if (!publisher) {
+        publisher = std::make_shared<dds::pub::Publisher>(*participant);
+        LOG_WRN("DDS", "[apply-qos:default] publisher domain=%d pub=%s (lib=%s prof=%s not found)", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    }
     publishers_[domain_id][pub_name] = publisher;
     LOG_INF("DDS", "publisher created domain=%d pub=%s", domain_id, pub_name.c_str());
     return DdsResult(true, DdsErrorCategory::None,
@@ -130,7 +166,7 @@ DdsResult DdsManager::create_publisher(int domain_id, const std::string& pub_nam
 DdsResult DdsManager::create_subscriber(int domain_id, const std::string& sub_name, const std::string& qos_lib,
                                         const std::string& qos_profile)
 {
-    LOG_DBG("DDS", "create_subscriber(domain_id=%d, sub_name=%s, qos_lib=%s, qos_profile=%s)", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    log_entry("create_subscriber", std::string("domain_id=") + std::to_string(domain_id) + ", sub_name=" + truncate_for_log(sub_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     if (!participants_.count(domain_id)) {
         DdsResult res = create_participant(domain_id, qos_lib, qos_profile);
         if (!res.ok) return DdsResult(false, DdsErrorCategory::Resource, "Participant creation failed: " + res.reason);
@@ -142,8 +178,17 @@ DdsResult DdsManager::create_subscriber(int domain_id, const std::string& sub_na
             false, DdsErrorCategory::Logic,
             "Duplicate subscriber creation not allowed: domain=" + std::to_string(domain_id) + " sub=" + sub_name);
     }
-    // Modern C++11 API: QoS를 명시하지 않으면 default QoS가 자동 적용됨
-    auto subscriber = std::make_shared<dds::sub::Subscriber>(*participant);
+    std::shared_ptr<dds::sub::Subscriber> subscriber;
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            subscriber = std::make_shared<dds::sub::Subscriber>(*participant, pack->subscriber);
+            LOG_INF("DDS", "[apply-qos] subscriber domain=%d sub=%s lib=%s prof=%s %s", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        }
+    }
+    if (!subscriber) {
+        subscriber = std::make_shared<dds::sub::Subscriber>(*participant);
+        LOG_WRN("DDS", "[apply-qos:default] subscriber domain=%d sub=%s (lib=%s prof=%s not found)", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    }
     subscribers_[domain_id][sub_name] = subscriber;
     LOG_INF("DDS", "subscriber created domain=%d sub=%s", domain_id, sub_name.c_str());
     return DdsResult(true, DdsErrorCategory::None,
@@ -167,7 +212,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
                                     const std::string& type_name, const std::string& qos_lib,
                                     const std::string& qos_profile)
 {
-    LOG_DBG("DDS", "create_writer(domain_id=%d, pub_name=%s, topic=%s, type_name=%s, qos_lib=%s, qos_profile=%s)", domain_id, pub_name.c_str(), topic.c_str(), type_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    log_entry("create_writer", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", type_name=" + truncate_for_log(type_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     if (!participants_.count(domain_id)) {
         DdsResult res = create_participant(domain_id, qos_lib, qos_profile);
         if (!res.ok) return DdsResult(false, DdsErrorCategory::Resource, "Participant creation failed: " + res.reason);
@@ -201,8 +246,27 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
         topics_[domain_id][pub_name][topic] = topic_holder;
     }
 
+    // QoS 조회 및 적용(Topic)
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            topic_holder->set_qos(pack->topic);
+            LOG_INF("DDS", "[apply-qos] topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        } else {
+            LOG_WRN("DDS", "[apply-qos:default] topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    }
+
     // WriterHolder 생성 (Topic 객체 활용)
     auto writer_holder = writer_factories[type_name](*publisher, *topic_holder);
+    // Writer QoS 적용
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            writer_holder->set_qos(pack->writer);
+            LOG_INF("DDS", "[apply-qos] writer topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        } else {
+            LOG_WRN("DDS", "[apply-qos:default] writer topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    }
     writers_[domain_id][pub_name][topic] = writer_holder;
     // topic과 type_name 매핑 저장 (publish_text에서 사용)
     topic_to_type_[topic] = type_name;
@@ -230,7 +294,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
                                     const std::string& type_name, const std::string& qos_lib,
                                     const std::string& qos_profile)
 {
-    LOG_DBG("DDS", "create_reader(domain_id=%d, sub_name=%s, topic=%s, type_name=%s, qos_lib=%s, qos_profile=%s)", domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
+    log_entry("create_reader", std::string("domain_id=") + std::to_string(domain_id) + ", sub_name=" + truncate_for_log(sub_name) + ", topic=" + truncate_for_log(topic) + ", type_name=" + truncate_for_log(type_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     LOG_INF("DDS", "reader ready domain=%d sub=%s topic=%s type=%s", domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str());
     if (!participants_.count(domain_id)) {
         DdsResult res = create_participant(domain_id, qos_lib, qos_profile);
@@ -266,7 +330,26 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
         topics_[domain_id][sub_name][topic] = topic_holder;
     }
 
+    // QoS 조회 및 적용(Topic)
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            topic_holder->set_qos(pack->topic);
+            LOG_INF("DDS", "[apply-qos] topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        } else {
+            LOG_WRN("DDS", "[apply-qos:default] topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    }
+
     auto reader_holder = reader_factories[type_name](*subscriber, *topic_holder);
+    // Reader QoS 적용
+    if (qos_store_) {
+        if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
+            reader_holder->set_qos(pack->reader);
+            LOG_INF("DDS", "[apply-qos] reader topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+        } else {
+            LOG_WRN("DDS", "[apply-qos:default] reader topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    }
     readers_[domain_id][sub_name][topic] = reader_holder;
 
     // 타입 소거 리스너 부착 및 수명 유지
@@ -292,7 +375,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
  */
 DdsResult DdsManager::publish_text(const std::string& topic, const std::string& text)
 {
-    LOG_DBG("DDS", "publish_text(topic=%s, text=%s)", topic.c_str(), text.c_str());
+    log_entry("publish_text", std::string("topic=") + truncate_for_log(topic) + ", text=" + truncate_for_log(text, 256));
     int count = 0;
     for (const auto& dom : writers_) {
         for (const auto& pub : dom.second) {
@@ -372,7 +455,7 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
 DdsResult DdsManager::publish_text(int domain_id, const std::string& pub_name, const std::string& topic,
                                    const std::string& text)
 {
-    LOG_DBG("DDS", "publish_text(domain_id=%d, pub_name=%s, topic=%s, text=%s)", domain_id, pub_name.c_str(), topic.c_str(), text.c_str());
+    log_entry("publish_text(domain)", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", text=" + truncate_for_log(text, 256));
     auto domIt = writers_.find(domain_id);
     if (domIt == writers_.end()) {
         LOG_ERR("DDS", "publish_text: domain=%d not found", domain_id);
@@ -425,6 +508,34 @@ void DdsManager::set_on_sample(SampleHandler cb)
 {
     on_sample_ = std::move(cb);
     LOG_DBG("DDS", "on_sample handler installed");
+}
+
+
+std::string DdsManager::summarize_qos(const rtpdds::QosPack& p)
+{
+    // 최소 요약: 원본 XML 파일 경로만 반환하여 RTI QoS wrapper 타입의 멤버 접근을 피함
+    if (p.origin_file.empty()) return std::string("(qos:default)");
+    return std::string("(qos from=") + p.origin_file + ")";
+}
+
+nlohmann::json DdsManager::list_qos_profiles(bool include_builtin, bool include_detail) const
+{
+    // Log entry with parameter values
+    log_entry("list_qos_profiles", std::string("include_builtin=") + (include_builtin ? "true" : "false") + ", include_detail=" + (include_detail ? "true" : "false"));
+
+    if (!qos_store_) {
+        nlohmann::json base = nlohmann::json::object();
+        base["result"] = nlohmann::json::array();
+        if (include_detail) base["detail"] = nlohmann::json::array();
+        return base;
+    }
+
+    nlohmann::json out = nlohmann::json::object();
+    out["result"] = qos_store_->list_profiles(include_builtin);
+    if (include_detail) {
+        out["detail"] = qos_store_->detail_profiles(include_builtin);
+    }
+    return out;
 }
 
 
