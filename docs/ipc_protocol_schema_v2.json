@@ -1,0 +1,131 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "IPC JSON/CBOR Protocol v2.0 - Schema",
+    "description": "Schema definitions for Request, Response and Event bodies used by IpcAdapter (RtpDdsGateway).",
+    "type": "object",
+    "definitions": {
+        "target": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "topic": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": true
+        },
+        "request": {
+            "type": "object",
+            "required": [
+                "op"
+            ],
+            "properties": {
+                "op": {
+                    "type": "string",
+                    "enum": [
+                        "create",
+                        "write",
+                        "clear",
+                        "hello",
+                        "get"
+                    ]
+                },
+                "target": {
+                    "$ref": "#/definitions/target"
+                },
+                "args": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                },
+                "data": {
+                    "type": [
+                        "object",
+                        "array",
+                        "string",
+                        "number",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                }
+            },
+            "additionalProperties": true
+        },
+        "response": {
+            "type": "object",
+            "required": [
+                "ok"
+            ],
+            "properties": {
+                "ok": {
+                    "type": "boolean"
+                },
+                "result": {
+                    "type": [
+                        "object",
+                        "array",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                },
+                "err": {
+                    "type": "integer"
+                },
+                "msg": {
+                    "type": "string"
+                },
+                "category": {
+                    "type": "integer"
+                }
+            },
+            "additionalProperties": true
+        },
+        "event": {
+            "type": "object",
+            "required": [
+                "evt",
+                "topic",
+                "type",
+                "data"
+            ],
+            "properties": {
+                "evt": {
+                    "type": "string",
+                    "enum": [
+                        "data"
+                    ]
+                },
+                "topic": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "display": {
+                    "type": [
+                        "string",
+                        "object",
+                        "null"
+                    ]
+                },
+                "data": {
+                    "type": [
+                        "object",
+                        "array",
+                        "string",
+                        "number",
+                        "null"
+                    ]
+                }
+            },
+            "additionalProperties": true
+        }
+    }
+}

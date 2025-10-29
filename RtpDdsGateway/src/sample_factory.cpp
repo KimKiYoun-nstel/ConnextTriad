@@ -61,11 +61,18 @@ bool json_to_dds(const nlohmann::json& j, const std::string& type_name, void* sa
         LOG_ERR("SampleFactory", "json_to_dds: null sample pointer provided for type=%s", type_name.c_str());
         return false;
     }
+    // clear any previous error, then attempt conversion
+    idlmeta::clear_json_error();
     bool result = it->second.from_json(j, sample);
     if (result) {
         LOG_DBG("SampleFactory", "json_to_dds: JSON converted successfully to DDS for type=%s", type_name.c_str());
     } else {
-        LOG_ERR("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s", type_name.c_str());
+        const std::string& err = idlmeta::last_json_error();
+        if (!err.empty()) {
+            LOG_ERR("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=%s", type_name.c_str(), err.c_str());
+        } else {
+            LOG_ERR("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=unknown (type/format mismatch)", type_name.c_str());
+        }
     }
     return result;
 }

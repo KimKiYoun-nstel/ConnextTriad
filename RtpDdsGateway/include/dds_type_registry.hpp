@@ -246,8 +246,8 @@ struct ReaderHolder : IReaderHolder {
 };
 
 using TopicFactory = std::function<std::shared_ptr<ITopicHolder>(dds::domain::DomainParticipant&, const std::string&)>;
-using WriterFactory = std::function<std::shared_ptr<IWriterHolder>(dds::pub::Publisher&, ITopicHolder&)>;
-using ReaderFactory = std::function<std::shared_ptr<IReaderHolder>(dds::sub::Subscriber&, ITopicHolder&)>;
+using WriterFactory = std::function<std::shared_ptr<IWriterHolder>(dds::pub::Publisher&, ITopicHolder&, const dds::pub::qos::DataWriterQos*)>;
+using ReaderFactory = std::function<std::shared_ptr<IReaderHolder>(dds::sub::Subscriber&, ITopicHolder&, const dds::sub::qos::DataReaderQos*)>;
 
 extern std::unordered_map<std::string, TopicFactory> topic_factories;
 extern std::unordered_map<std::string, WriterFactory> writer_factories;
@@ -260,18 +260,28 @@ void register_dds_type(const std::string& type_name)
         auto dds_topic = std::make_shared<dds::topic::Topic<T> >(participant, topic);
         return std::make_shared<TopicHolder<T> >(dds_topic);
     };
-    writer_factories[type_name] = [](dds::pub::Publisher& publisher, ITopicHolder& th) {
+    writer_factories[type_name] = [](dds::pub::Publisher& publisher, ITopicHolder& th, const dds::pub::qos::DataWriterQos* q) {
         auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
         if (!typed_topic) throw std::runtime_error("Topic type mismatch for Writer");
-        auto writer = std::make_shared<dds::pub::DataWriter<T> >(publisher, *(typed_topic->topic));
+        std::shared_ptr<dds::pub::DataWriter<T> > writer;
+        if (q) {
+            writer = std::make_shared<dds::pub::DataWriter<T> >(publisher, *(typed_topic->topic), *q);
+        } else {
+            writer = std::make_shared<dds::pub::DataWriter<T> >(publisher, *(typed_topic->topic));
+        }
         auto holder = std::make_shared<WriterHolder<T> >(writer);
         holder->writer_holder_listener(typed_topic->topic->name());
         return holder;
     };
-    reader_factories[type_name] = [](dds::sub::Subscriber& subscriber, ITopicHolder& th) {
+    reader_factories[type_name] = [](dds::sub::Subscriber& subscriber, ITopicHolder& th, const dds::sub::qos::DataReaderQos* q) {
         auto typed_topic = dynamic_cast<TopicHolder<T>*>(&th);
         if (!typed_topic) throw std::runtime_error("Topic type mismatch for Reader");
-        auto reader = std::make_shared<dds::sub::DataReader<T> >(subscriber, *(typed_topic->topic));
+        std::shared_ptr<dds::sub::DataReader<T> > reader;
+        if (q) {
+            reader = std::make_shared<dds::sub::DataReader<T> >(subscriber, *(typed_topic->topic), *q);
+        } else {
+            reader = std::make_shared<dds::sub::DataReader<T> >(subscriber, *(typed_topic->topic));
+        }
         auto holder = std::make_shared<ReaderHolder<T> >(reader);
         holder->reader_holder_listener(typed_topic->topic->name());
         return holder;

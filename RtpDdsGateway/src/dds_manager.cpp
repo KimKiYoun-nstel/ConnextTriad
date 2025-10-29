@@ -97,8 +97,13 @@ DdsResult DdsManager::create_participant(int domain_id, const std::string& qos_l
     std::shared_ptr<dds::domain::DomainParticipant> participant;
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            participant = std::make_shared<dds::domain::DomainParticipant>(domain_id, pack->participant);
-            LOG_INF("DDS", "[apply-qos] participant domain=%d lib=%s prof=%s %s", domain_id, qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            try {
+                participant = std::make_shared<dds::domain::DomainParticipant>(domain_id, pack->participant);
+                LOG_INF("DDS", "[apply-qos] participant domain=%d lib=%s prof=%s %s", domain_id, qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            } catch (const std::exception& ex) {
+                LOG_ERR("DDS", "[qos-apply-failed] participant domain=%d lib=%s prof=%s error=%s", domain_id, qos_lib.c_str(), qos_profile.c_str(), ex.what());
+                LOG_WRN("DDS", "[apply-qos:default] participant domain=%d (fallback to Default due to qos apply failure)", domain_id);
+            }
         }
     }
     if (!participant) {
@@ -139,8 +144,13 @@ DdsResult DdsManager::create_publisher(int domain_id, const std::string& pub_nam
     std::shared_ptr<dds::pub::Publisher> publisher;
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            publisher = std::make_shared<dds::pub::Publisher>(*participant, pack->publisher);
-            LOG_INF("DDS", "[apply-qos] publisher domain=%d pub=%s lib=%s prof=%s %s", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            try {
+                publisher = std::make_shared<dds::pub::Publisher>(*participant, pack->publisher);
+                LOG_INF("DDS", "[apply-qos] publisher domain=%d pub=%s lib=%s prof=%s %s", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            } catch (const std::exception& ex) {
+                LOG_ERR("DDS", "[qos-apply-failed] publisher domain=%d pub=%s lib=%s prof=%s error=%s", domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), ex.what());
+                LOG_WRN("DDS", "[apply-qos:default] publisher domain=%d pub=%s (fallback to Default due to qos apply failure)", domain_id, pub_name.c_str());
+            }
         }
     }
     if (!publisher) {
@@ -181,8 +191,13 @@ DdsResult DdsManager::create_subscriber(int domain_id, const std::string& sub_na
     std::shared_ptr<dds::sub::Subscriber> subscriber;
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            subscriber = std::make_shared<dds::sub::Subscriber>(*participant, pack->subscriber);
-            LOG_INF("DDS", "[apply-qos] subscriber domain=%d sub=%s lib=%s prof=%s %s", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            try {
+                subscriber = std::make_shared<dds::sub::Subscriber>(*participant, pack->subscriber);
+                LOG_INF("DDS", "[apply-qos] subscriber domain=%d sub=%s lib=%s prof=%s %s", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            } catch (const std::exception& ex) {
+                LOG_ERR("DDS", "[qos-apply-failed] subscriber domain=%d sub=%s lib=%s prof=%s error=%s", domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str(), ex.what());
+                LOG_WRN("DDS", "[apply-qos:default] subscriber domain=%d sub=%s (fallback to Default due to qos apply failure)", domain_id, sub_name.c_str());
+            }
         }
     }
     if (!subscriber) {
@@ -249,22 +264,44 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
     // QoS 조회 및 적용(Topic)
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            topic_holder->set_qos(pack->topic);
-            LOG_INF("DDS", "[apply-qos] topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            try {
+                topic_holder->set_qos(pack->topic);
+                LOG_INF("DDS", "[apply-qos] topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            } catch (const std::exception& ex) {
+                LOG_ERR("DDS", "[qos-apply-failed] topic=%s lib=%s prof=%s error=%s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), ex.what());
+                LOG_WRN("DDS", "[apply-qos:default] topic=%s (fallback to Default due to qos apply failure)", topic.c_str());
+            }
         } else {
             LOG_WRN("DDS", "[apply-qos:default] topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
         }
     }
-
-    // WriterHolder 생성 (Topic 객체 활용)
-    auto writer_holder = writer_factories[type_name](*publisher, *topic_holder);
-    // Writer QoS 적용
+    // WriterHolder 생성 (Topic 객체 활용) — create with QoS when possible to avoid immutable-policy errors
+    std::shared_ptr<IWriterHolder> writer_holder;
+    const dds::pub::qos::DataWriterQos* writer_q = nullptr;
+    std::optional<rtpdds::QosPack> writer_pack;
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            writer_holder->set_qos(pack->writer);
-            LOG_INF("DDS", "[apply-qos] writer topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            writer_pack = *pack;
+            writer_q = &writer_pack->writer;
+        }
+    }
+
+    try {
+        writer_holder = writer_factories[type_name](*publisher, *topic_holder, writer_q);
+        if (writer_q) {
+            LOG_INF("DDS", "[apply-qos] writer created with QoS topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), (writer_pack ? writer_pack->origin_file.c_str() : "(builtin)"));
         } else {
             LOG_WRN("DDS", "[apply-qos:default] writer topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    } catch (const std::exception& ex) {
+        LOG_ERR("DDS", "create_writer: failed to create writer with requested QoS: %s", ex.what());
+        // Attempt fallback: create writer without QoS
+        try {
+            writer_holder = writer_factories[type_name](*publisher, *topic_holder, nullptr);
+            LOG_WRN("DDS", "create_writer: fallback to default writer QoS for topic=%s", topic.c_str());
+        } catch (const std::exception& ex2) {
+            LOG_ERR("DDS", "create_writer: failed to create writer (fallback also failed): %s", ex2.what());
+            return DdsResult(false, DdsErrorCategory::Resource, std::string("Writer creation failed: ") + ex2.what());
         }
     }
     writers_[domain_id][pub_name][topic] = writer_holder;
@@ -340,14 +377,32 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
         }
     }
 
-    auto reader_holder = reader_factories[type_name](*subscriber, *topic_holder);
-    // Reader QoS 적용
+    // ReaderHolder 생성 with QoS when possible
+    std::shared_ptr<IReaderHolder> reader_holder;
+    const dds::sub::qos::DataReaderQos* reader_q = nullptr;
+    std::optional<rtpdds::QosPack> reader_pack;
     if (qos_store_) {
         if (auto pack = qos_store_->find_or_reload(qos_lib, qos_profile)) {
-            reader_holder->set_qos(pack->reader);
-            LOG_INF("DDS", "[apply-qos] reader topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
+            reader_pack = *pack;
+            reader_q = &reader_pack->reader;
+        }
+    }
+
+    try {
+        reader_holder = reader_factories[type_name](*subscriber, *topic_holder, reader_q);
+        if (reader_q) {
+            LOG_INF("DDS", "[apply-qos] reader created with QoS topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), (reader_pack ? reader_pack->origin_file.c_str() : "(builtin)"));
         } else {
             LOG_WRN("DDS", "[apply-qos:default] reader topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
+        }
+    } catch (const std::exception& ex) {
+        LOG_ERR("DDS", "create_reader: failed to create reader with requested QoS: %s", ex.what());
+        try {
+            reader_holder = reader_factories[type_name](*subscriber, *topic_holder, nullptr);
+            LOG_WRN("DDS", "create_reader: fallback to default reader QoS for topic=%s", topic.c_str());
+        } catch (const std::exception& ex2) {
+            LOG_ERR("DDS", "create_reader: failed to create reader (fallback also failed): %s", ex2.what());
+            return DdsResult(false, DdsErrorCategory::Resource, std::string("Reader creation failed: ") + ex2.what());
         }
     }
     readers_[domain_id][sub_name][topic] = reader_holder;

@@ -19,7 +19,7 @@ int main(int argc, char** argv)
 
 
     std::string mode = (argc > 1) ? argv[1] : "server";
-    std::string addr = (argc > 2) ? argv[2] : "127.0.0.1";
+    std::string addr = (argc > 2) ? argv[2] : "0.0.0.0";
     uint16_t port = (argc > 3) ? static_cast<uint16_t>(std::stoi(argv[3])) : 25000;
 
     InitRtiLoggerToTriad();

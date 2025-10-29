@@ -310,6 +310,13 @@ void QosStore::initialize()
                 LOG_DBG("DDS", "[qos-profile] none found in %s", pe.path.c_str());
             }
         }
+        // cache builtin candidate names once for consistency and to avoid repeated helper calls
+        try {
+            builtin_candidates_ = collect_builtin_qos_lib_names();
+            LOG_DBG("DDS", "[qos-cache] builtin candidates=%zu", builtin_candidates_.size());
+        } catch (...) {
+            LOG_DBG("DDS", "[qos-cache] collect_builtin_qos_lib_names failed");
+        }
     } catch (const std::exception& e) {
         LOG_WRN("DDS", "QosStore initialize exception: %s", e.what());
     }
@@ -341,7 +348,22 @@ std::vector<QosStore::ProviderEntry> QosStore::load_providers_from_dir_nothrow(c
     for (const auto& f : files) {
         try {
             auto prov = std::make_shared<dds::core::QosProvider>(f);
-            out.push_back({f, prov});
+            ProviderEntry pe;
+            pe.path = f;
+            pe.provider = prov;
+            // parse profiles once and cache
+            try {
+                auto pairs = parse_profiles_from_file(f);
+                for (const auto &p : pairs) pe.profiles.insert(p.first + "::" + p.second);
+            } catch (...) {
+                // ignore parse failures here
+            }
+            // record last write time if possible
+            try {
+                pe.mtime = fs::last_write_time(f);
+            } catch (...) {
+            }
+            out.push_back(std::move(pe));
             LOG_INF("DDS", "[qos-file] loaded: %s", f.c_str());
         } catch (const std::exception& e) {
             LOG_WRN("DDS", "[qos-file] load failed: %s (%s)", f.c_str(), e.what());
@@ -355,10 +377,41 @@ std::string QosStore::key(const std::string& lib, const std::string& profile)
     return lib + "::" + profile;
 }
 
-std::optional<QosPack> QosStore::resolve_from_providers(const std::string& lib, const std::string& profile) const
+std::optional<QosPack> QosStore::resolve_from_providers(const std::string& lib, const std::string& profile)
 {
     const std::string combined = lib + "::" + profile;
     for (auto it = providers_.rbegin(); it != providers_.rend(); ++it) {
+        // check cached profile list first; if absent, consider reparsing file if it changed
+        bool maybe_present = false;
+        try {
+            if (it->profiles.find(combined) != it->profiles.end()) {
+                maybe_present = true;
+            } else {
+                // check mtime to avoid repeated reparsing
+                try {
+                    auto now = fs::last_write_time(it->path);
+                    if (now != it->mtime) {
+                        // file changed -> reparse and update cache
+                        auto pairs = parse_profiles_from_file(it->path);
+                        it->profiles.clear();
+                        for (const auto &p : pairs) it->profiles.insert(p.first + "::" + p.second);
+                        it->mtime = now;
+                        if (it->profiles.find(combined) != it->profiles.end()) maybe_present = true;
+                        LOG_DBG("DDS", "[qos-cache] reparse %s profiles=%zu", it->path.c_str(), it->profiles.size());
+                    }
+                } catch (...) {
+                    // ignore file time errors
+                }
+            }
+        } catch (...) {
+            // ignore any cache inspection errors and attempt direct resolve below
+        }
+
+        if (!maybe_present) {
+            // not present according to cache; skip RTI lookup to avoid noisy negative logs
+            continue;
+        }
+
         try {
             QosPack p;
             // RTI QosProvider APIs accept a single profile identifier in the form 'library::profile'
@@ -506,10 +559,9 @@ std::vector<std::string> QosStore::list_profiles(bool include_builtin) const
             out.push_back(lp.first + "::" + lp.second);
         }
     }
-    // builtin candidates appended using RTI helper names where available
+    // builtin candidates appended using cached helper names where available
     if (include_builtin) {
-        auto candidates = collect_builtin_qos_lib_names();
-        out.insert(out.end(), candidates.begin(), candidates.end());
+        out.insert(out.end(), builtin_candidates_.begin(), builtin_candidates_.end());
     }
     // unique & stable sort
     std::sort(out.begin(), out.end());
@@ -565,7 +617,7 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
     if (include_builtin) {
         try {
             auto prov = dds::core::QosProvider::Default();
-            std::vector<std::string> candidates = collect_builtin_qos_lib_names();
+            const std::vector<std::string> candidates = builtin_candidates_;
 
             for (const auto& full : candidates) {
                 nlohmann::json obj;

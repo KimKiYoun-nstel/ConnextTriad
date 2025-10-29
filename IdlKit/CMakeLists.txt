@@ -62,7 +62,10 @@ add_custom_command(
     ${GEN_DIR}/idl_install_factories.cpp
     ${GEN_DIR}/idl_generated_includes.hpp
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/emit_autoreg.py ${GEN_DIR} ${XML_DIR}
-  DEPENDS idl_cpp
+  # Ensure both generated C++ headers/sources and the XML outputs are ready
+  # before running the autoreg script. Previously this depended only on
+  # idl_cpp which could race with XML generation and yield an empty registry.
+  DEPENDS idl_cpp idl_xml
   COMMENT "emit type registry + install factories"
 )
 

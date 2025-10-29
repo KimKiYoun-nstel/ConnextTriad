@@ -3,6 +3,8 @@
 #include <dds/core/QosProvider.hpp>
 #include <nlohmann/json.hpp>
 #include <shared_mutex>
+#include <filesystem>
+#include <unordered_set>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -43,15 +45,21 @@ private:
     struct ProviderEntry {
         std::string path;
         std::shared_ptr<dds::core::QosProvider> provider;
+        // cached set of "lib::profile" strings parsed from the XML file
+        std::unordered_set<std::string> profiles;
+        // last observed file modification time to avoid unnecessary reparsing
+        std::filesystem::file_time_type mtime{};
     };
 
     std::vector<ProviderEntry> load_providers_from_dir_nothrow(const std::string& dir);
     static std::string key(const std::string& lib, const std::string& profile);
-    std::optional<QosPack> resolve_from_providers(const std::string& lib, const std::string& profile) const;
+    std::optional<QosPack> resolve_from_providers(const std::string& lib, const std::string& profile);
 
 private:
     std::string dir_;
     std::vector<ProviderEntry> providers_;
+    // cached list of builtin candidate full profile names (e.g. "lib::profile")
+    std::vector<std::string> builtin_candidates_;
     std::unordered_map<std::string, QosPack> cache_;
     mutable std::shared_mutex mtx_;
     uint64_t cache_version_ = 0;
