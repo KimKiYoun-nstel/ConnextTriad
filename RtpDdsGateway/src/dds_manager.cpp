@@ -225,7 +225,7 @@ DdsResult DdsManager::create_subscriber(int domain_id, const std::string& sub_na
  */
 DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, const std::string& topic,
                                     const std::string& type_name, const std::string& qos_lib,
-                                    const std::string& qos_profile)
+                                    const std::string& qos_profile, uint64_t* out_id)
 {
     log_entry("create_writer", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", type_name=" + truncate_for_log(type_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     if (!participants_.count(domain_id)) {
@@ -245,20 +245,17 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 
     auto& participant = participants_[domain_id];
     auto& publisher = publishers_[domain_id][pub_name];
-    if (writers_[domain_id][pub_name].count(topic)) {
-        LOG_WRN("DDS", "Duplicate writer creation attempt: domain=%d pub=%s topic=%s", domain_id, pub_name.c_str(), topic.c_str());
-        return DdsResult(false, DdsErrorCategory::Logic,
-                         "Duplicate writer creation not allowed: domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
-    }
+    // Allow multiple writers for the same (domain, pub_name, topic). Append new writer to the vector.
 
-    // TopicHolder 생성 및 저장 (이미 있으면 재사용)
+    // TopicHolder 생성 및 저장 (participant(domain) 스코프에서 재사용)
     std::shared_ptr<ITopicHolder> topic_holder;
-    auto topic_it = topics_[domain_id][pub_name].find(topic);
-    if (topic_it != topics_[domain_id][pub_name].end()) {
+    auto& domain_topics = topics_[domain_id];
+    auto topic_it = domain_topics.find(topic);
+    if (topic_it != domain_topics.end()) {
         topic_holder = topic_it->second;
     } else {
         topic_holder = topic_factories[type_name](*participant, topic);
-        topics_[domain_id][pub_name][topic] = topic_holder;
+        domain_topics[topic] = topic_holder;
     }
 
     // QoS 조회 및 적용(Topic)
@@ -304,13 +301,16 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
             return DdsResult(false, DdsErrorCategory::Resource, std::string("Writer creation failed: ") + ex2.what());
         }
     }
-    writers_[domain_id][pub_name][topic] = writer_holder;
-    // topic과 type_name 매핑 저장 (publish_text에서 사용)
-    topic_to_type_[topic] = type_name;
-    LOG_INF("DDS", "writer created domain=%d pub=%s topic=%s", domain_id, pub_name.c_str(), topic.c_str());
+    // Generate holder id and append writer to list for this (domain,pub_name,topic)
+    DdsManager::HolderId id = next_holder_id_.fetch_add(1);
+    writers_[domain_id][pub_name][topic].push_back({id, writer_holder});
+    if (out_id) *out_id = static_cast<uint64_t>(id);
+    // topic과 type_name 매핑 저장 (도메인별로 저장)
+    topic_to_type_[domain_id][topic] = type_name;
+    LOG_INF("DDS", "writer created id=%llu domain=%d pub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, pub_name.c_str(), topic.c_str());
     return DdsResult(
         true, DdsErrorCategory::None,
-        "Writer created successfully: domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
+        "Writer created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
 }
 
 /**
@@ -329,7 +329,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
  */
 DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, const std::string& topic,
                                     const std::string& type_name, const std::string& qos_lib,
-                                    const std::string& qos_profile)
+                                    const std::string& qos_profile, uint64_t* out_id)
 {
     log_entry("create_reader", std::string("domain_id=") + std::to_string(domain_id) + ", sub_name=" + truncate_for_log(sub_name) + ", topic=" + truncate_for_log(topic) + ", type_name=" + truncate_for_log(type_name) + ", qos_lib=" + truncate_for_log(qos_lib) + ", qos_profile=" + truncate_for_log(qos_profile));
     LOG_INF("DDS", "reader ready domain=%d sub=%s topic=%s type=%s", domain_id, sub_name.c_str(), topic.c_str(), type_name.c_str());
@@ -350,21 +350,19 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 
     auto& participant = participants_[domain_id];
     auto& subscriber = subscribers_[domain_id][sub_name];
-    if (readers_[domain_id][sub_name].count(topic)) {
-        LOG_WRN("DDS", "Duplicate reader creation attempt: domain=%d sub=%s topic=%s", domain_id, sub_name.c_str(), topic.c_str());
-        return DdsResult(false, DdsErrorCategory::Logic,
-                         "Duplicate reader creation not allowed: domain=" + std::to_string(domain_id) + " sub=" + sub_name + " topic=" + topic);
-    }
+    // Allow multiple readers for the same (domain, sub_name, topic). Append new reader to the vector.
 
     // TopicHolder 재사용 (Writer 생성 시 저장된 객체)
+    // TopicHolder 재사용 (participant(domain) 스코프)
     std::shared_ptr<ITopicHolder> topic_holder;
-    auto topic_it = topics_[domain_id][sub_name].find(topic);
-    if (topic_it != topics_[domain_id][sub_name].end()) {
-        topic_holder = topic_it->second;
+    auto& domain_topics_r = topics_[domain_id];
+    auto topic_it_r = domain_topics_r.find(topic);
+    if (topic_it_r != domain_topics_r.end()) {
+        topic_holder = topic_it_r->second;
     } else {
         // 없으면 새로 생성
         topic_holder = topic_factories[type_name](*participant, topic);
-        topics_[domain_id][sub_name][topic] = topic_holder;
+        domain_topics_r[topic] = topic_holder;
     }
 
     // QoS 조회 및 적용(Topic)
@@ -405,7 +403,10 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
             return DdsResult(false, DdsErrorCategory::Resource, std::string("Reader creation failed: ") + ex2.what());
         }
     }
-    readers_[domain_id][sub_name][topic] = reader_holder;
+    // Generate id and append reader to list for this (domain,sub_name,topic)
+    DdsManager::HolderId id = next_holder_id_.fetch_add(1);
+    readers_[domain_id][sub_name][topic].push_back({id, reader_holder});
+    if (out_id) *out_id = static_cast<uint64_t>(id);
 
     // 타입 소거 리스너 부착 및 수명 유지
     if (on_sample_) {
@@ -413,10 +414,10 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
     LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
     }
 
-    LOG_INF("DDS", "reader created domain=%d sub=%s topic=%s", domain_id, sub_name.c_str(), topic.c_str());
+    LOG_INF("DDS", "reader created id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, sub_name.c_str(), topic.c_str());
     return DdsResult(
         true, DdsErrorCategory::None,
-        "Reader created successfully: domain=" + std::to_string(domain_id) + " sub=" + sub_name + " topic=" + topic);
+        "Reader created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " sub=" + sub_name + " topic=" + topic);
 }
 
 /**
@@ -428,70 +429,72 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
  * topic_to_type_에서 타입명 조회 → sample_factory에서 샘플 생성 → writer에 publish
  * 여러 writer에 중복 전송될 수 있음(경고)
  */
-DdsResult DdsManager::publish_text(const std::string& topic, const std::string& text)
+DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::json& j)
 {
-    log_entry("publish_text", std::string("topic=") + truncate_for_log(topic) + ", text=" + truncate_for_log(text, 256));
+    log_entry("publish_json", std::string("topic=") + truncate_for_log(topic) + ", jsize=" + std::to_string(j.dump().size()));
+    if (!j.is_object()) {
+        LOG_ERR("DDS", "publish_json: payload is not a JSON object for topic=%s", topic.c_str());
+        return DdsResult(false, DdsErrorCategory::Logic, "payload must be a JSON object");
+    }
     int count = 0;
     for (const auto& dom : writers_) {
+        int domain_id = dom.first;
         for (const auto& pub : dom.second) {
             auto it = pub.second.find(topic);
             if (it != pub.second.end()) {
-                auto& holder = it->second;
+                const auto& entries = it->second; // vector of WriterEntry
                 std::string type_name;
-                auto type_it = topic_to_type_.find(topic);
-                if (type_it == topic_to_type_.end()) {
-                    LOG_ERR("DDS", "publish_text: type_name not found for topic=%s", topic.c_str());
+                auto dom_type_it = topic_to_type_.find(domain_id);
+                if (dom_type_it == topic_to_type_.end()) {
+                    LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
+                    continue;
+                }
+                auto type_it = dom_type_it->second.find(topic);
+                if (type_it == dom_type_it->second.end()) {
+                    LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
                     continue;
                 }
                 type_name = type_it->second;
-                LOG_DBG("DDS", "publish_text: type_name=%s", type_name.c_str());
+                LOG_DBG("DDS", "publish_json: type_name=%s", type_name.c_str());
 
                 void* sample = rtpdds::create_sample(type_name);
                 if (!sample) {
-                    LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
+                    LOG_ERR("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
                     continue;
                 }
-                LOG_DBG("DDS", "publish_text: sample created for type=%s", type_name.c_str());
-
-                nlohmann::json j;
-                try {
-                    j = nlohmann::json::parse(text);
-                } catch (...) {
-                    LOG_ERR("DDS", "publish_text: invalid JSON");
-                    rtpdds::destroy_sample(type_name, sample);
-                    continue;
-                }
+                LOG_DBG("DDS", "publish_json: sample created for type=%s", type_name.c_str());
 
                 if (!rtpdds::json_to_dds(j, type_name, sample)) {
-                    LOG_ERR("DDS", "publish_text: json_to_dds failed for type=%s", type_name.c_str());
+                    LOG_ERR("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
                     rtpdds::destroy_sample(type_name, sample);
                     continue;
                 }
-                LOG_DBG("DDS", "publish_text: json_to_dds succeeded for type=%s", type_name.c_str());
+                LOG_DBG("DDS", "publish_json: json_to_dds succeeded for type=%s", type_name.c_str());
 
                 try {
-                    // void*를 std::any로 래핑
                     std::any wrapped_sample = sample;
-                    holder->write_any(wrapped_sample);
+                    for (const auto& entry : entries) {
+                        entry.holder->write_any(wrapped_sample);
+                    }
                 } catch (const std::bad_any_cast& e) {
-                    LOG_ERR("DDS", "publish_text: bad_any_cast exception: %s", e.what());
-                    LOG_ERR("DDS", "publish_text: WriterHolder may not support type=%s", type_name.c_str());
+                    LOG_ERR("DDS", "publish_json: bad_any_cast exception: %s", e.what());
+                    LOG_ERR("DDS", "publish_json: WriterHolder may not support type=%s", type_name.c_str());
                     rtpdds::destroy_sample(type_name, sample);
                     continue;
                 }
 
                 rtpdds::destroy_sample(type_name, sample);
-                LOG_INF("DDS", "write ok topic=%s domain=%d pub=%s size=%zu", topic.c_str(), dom.first, pub.first.c_str(), text.size());
-                count++;
+                LOG_INF("DDS", "write ok topic=%s domain=%d pub=%s size=%zu", topic.c_str(), dom.first, pub.first.c_str(), j.dump().size());
+                count += static_cast<int>(entries.size());
             }
         }
     }
     if (count == 0) {
-        LOG_ERR("DDS", "publish_text: topic=%s writer not found or invalid type/sample", topic.c_str());
+        LOG_ERR("DDS", "publish_json: topic=%s writer not found or invalid type/sample", topic.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "Writer not found or invalid type/sample for topic: " + topic);
     }
     if (count > 1) {
-        LOG_WRN("DDS", "publish_text: topic=%s published to %d writers (duplicate transmission warning)", topic.c_str(), count);
+        LOG_WRN("DDS", "publish_json: topic=%s published to %d writers (duplicate transmission warning)", topic.c_str(), count);
     }
     return DdsResult(true, DdsErrorCategory::None,
                      "Publish succeeded: topic=" + topic + " count=" + std::to_string(count));
@@ -507,50 +510,65 @@ DdsResult DdsManager::publish_text(const std::string& topic, const std::string& 
  *
  * sample_factory에서 샘플 생성 → writer에 publish
  */
-DdsResult DdsManager::publish_text(int domain_id, const std::string& pub_name, const std::string& topic,
-                                   const std::string& text)
+DdsResult DdsManager::publish_json(int domain_id, const std::string& pub_name, const std::string& topic,
+                                   const nlohmann::json& j)
 {
-    log_entry("publish_text(domain)", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", text=" + truncate_for_log(text, 256));
+    log_entry("publish_json(domain)", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", jsize=" + std::to_string(j.dump().size()));
+    if (!j.is_object()) {
+        LOG_ERR("DDS", "publish_json: payload is not a JSON object for topic=%s domain=%d", topic.c_str(), domain_id);
+        return DdsResult(false, DdsErrorCategory::Logic, "payload must be a JSON object");
+    }
     auto domIt = writers_.find(domain_id);
     if (domIt == writers_.end()) {
-        LOG_ERR("DDS", "publish_text: domain=%d not found", domain_id);
+        LOG_ERR("DDS", "publish_json: domain=%d not found", domain_id);
         return DdsResult(false, DdsErrorCategory::Logic, "Domain not found: " + std::to_string(domain_id));
     }
     auto pubIt = domIt->second.find(pub_name);
     if (pubIt == domIt->second.end()) {
-        LOG_ERR("DDS", "publish_text: publisher=%s not found in domain=%d", pub_name.c_str(), domain_id);
+        LOG_ERR("DDS", "publish_json: publisher=%s not found in domain=%d", pub_name.c_str(), domain_id);
         return DdsResult(false, DdsErrorCategory::Logic, "Publisher not found: " + pub_name);
     }
     auto topicIt = pubIt->second.find(topic);
     if (topicIt == pubIt->second.end()) {
-        LOG_ERR("DDS", "publish_text: topic=%s not found in publisher=%s domain=%d", topic.c_str(), pub_name.c_str(), domain_id);
+        LOG_ERR("DDS", "publish_json: topic=%s not found in publisher=%s domain=%d", topic.c_str(), pub_name.c_str(), domain_id);
         return DdsResult(false, DdsErrorCategory::Logic, "Topic not found: " + topic);
     }
-    auto& holder = topicIt->second;
+    auto& entries = topicIt->second;
     std::string type_name;
-    auto type_it = topic_to_type_.find(topic);
-    if (type_it != topic_to_type_.end()) {
-        type_name = type_it->second;
-    } else {
-        LOG_ERR("DDS", "publish_text: type_name not found for topic=%s", topic.c_str());
+    auto dom_type_it = topic_to_type_.find(domain_id);
+    if (dom_type_it != topic_to_type_.end()) {
+        auto type_it = dom_type_it->second.find(topic);
+        if (type_it != dom_type_it->second.end()) {
+            type_name = type_it->second;
+        }
+    }
+    if (type_name.empty()) {
+        LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
         return DdsResult(false, DdsErrorCategory::Logic, "type_name not found for topic: " + topic);
     }
     void* sample = rtpdds::create_sample(type_name);
     if (!sample) {
-        LOG_ERR("DDS", "publish_text: failed to create sample for type=%s", type_name.c_str());
+        LOG_ERR("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
         return DdsResult(false, DdsErrorCategory::Logic, "failed to create sample for type: " + type_name);
     }
-    // JSON → DDS 매핑
-    nlohmann::json j;
-    try { j = nlohmann::json::parse(text); } catch (...) { LOG_ERR("DDS", "publish_text: invalid JSON"); rtpdds::destroy_sample(type_name, sample); return DdsResult(false, DdsErrorCategory::Logic, "invalid JSON"); }
     if (!rtpdds::json_to_dds(j, type_name, sample)) {
-        LOG_ERR("DDS", "publish_text: json_to_dds failed for type=%s", type_name.c_str());
+        LOG_ERR("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
         rtpdds::destroy_sample(type_name, sample);
         return DdsResult(false, DdsErrorCategory::Logic, "json_to_dds failed for type: " + type_name);
     }
-    holder->write_any(sample);
+    try {
+        std::any wrapped_sample = sample;
+        for (const auto& entry : entries) {
+            entry.holder->write_any(wrapped_sample);
+        }
+    } catch (const std::bad_any_cast& e) {
+        LOG_ERR("DDS", "publish_json: bad_any_cast exception: %s", e.what());
+        LOG_ERR("DDS", "publish_json: WriterHolder may not support type=%s", type_name.c_str());
+        rtpdds::destroy_sample(type_name, sample);
+        return DdsResult(false, DdsErrorCategory::Logic, "WriterHolder type mismatch");
+    }
     rtpdds::destroy_sample(type_name, sample);
-    LOG_INF("DDS", "write ok domain=%d pub=%s topic=%s size=%zu", domain_id, pub_name.c_str(), topic.c_str(), text.size());
+    LOG_INF("DDS", "write ok domain=%d pub=%s topic=%s size=%zu", domain_id, pub_name.c_str(), topic.c_str(), j.dump().size());
     return DdsResult(true, DdsErrorCategory::None,
                      "Publish succeeded: domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
 }
@@ -563,6 +581,103 @@ void DdsManager::set_on_sample(SampleHandler cb)
 {
     on_sample_ = std::move(cb);
     LOG_DBG("DDS", "on_sample handler installed");
+}
+
+/**
+ * @brief Remove a writer by its holder id
+ */
+DdsResult DdsManager::remove_writer(uint64_t id)
+{
+    log_entry("remove_writer", std::string("id=") + std::to_string(id));
+    for (auto domIt = writers_.begin(); domIt != writers_.end(); ++domIt) {
+        int domain_id = domIt->first;
+        auto &pubmap = domIt->second;
+        for (auto pubIt = pubmap.begin(); pubIt != pubmap.end(); ) {
+            auto &topic_map = pubIt->second;
+            for (auto topicIt = topic_map.begin(); topicIt != topic_map.end(); ) {
+                auto &vec = topicIt->second;
+                auto it = std::find_if(vec.begin(), vec.end(), [id](const WriterEntry &e) { return e.id == id; });
+                if (it != vec.end()) {
+                    vec.erase(it);
+                    LOG_INF("DDS", "removed writer id=%llu domain=%d pub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, pubIt->first.c_str(), topicIt->first.c_str());
+                    // cleanups
+                    if (vec.empty()) {
+                        topicIt = topic_map.erase(topicIt);
+                    } else {
+                        ++topicIt;
+                    }
+                    if (topic_map.empty()) {
+                        pubIt = pubmap.erase(pubIt);
+                    }
+                    // If no more writers/readers exist for this topic in this domain, remove topic_to_type_
+                    bool has_any = false;
+                    // search writers_
+                    auto wdomIt = writers_.find(domain_id);
+                    if (wdomIt != writers_.end()) {
+                        for (const auto &p : wdomIt->second) {
+                            if (p.second.count(topicIt==topic_map.end() ? std::string() : topicIt->first)) { has_any = true; break; }
+                        }
+                    }
+                    // search readers_ if still not found
+                    if (!has_any) {
+                        auto rdomIt = readers_.find(domain_id);
+                        if (rdomIt != readers_.end()) {
+                            for (const auto &p : rdomIt->second) {
+                                if (p.second.count(topicIt==topic_map.end() ? std::string() : topicIt->first)) { has_any = true; break; }
+                            }
+                        }
+                    }
+                    if (!has_any) {
+                        auto dom_type_it = topic_to_type_.find(domain_id);
+                        if (dom_type_it != topic_to_type_.end()) {
+                            dom_type_it->second.erase(topicIt==topic_map.end() ? std::string() : topicIt->first);
+                        }
+                    }
+                    return DdsResult(true, DdsErrorCategory::None, "Writer removed: id=" + std::to_string(id));
+                } else {
+                    ++topicIt;
+                }
+            }
+            ++pubIt;
+        }
+    }
+    return DdsResult(false, DdsErrorCategory::Logic, "Writer id not found: " + std::to_string(id));
+}
+
+/**
+ * @brief Remove a reader by its holder id
+ */
+DdsResult DdsManager::remove_reader(uint64_t id)
+{
+    log_entry("remove_reader", std::string("id=") + std::to_string(id));
+    for (auto domIt = readers_.begin(); domIt != readers_.end(); ++domIt) {
+        int domain_id = domIt->first;
+        auto &submap = domIt->second;
+        for (auto subIt = submap.begin(); subIt != submap.end(); ) {
+            auto &topic_map = subIt->second;
+            for (auto topicIt = topic_map.begin(); topicIt != topic_map.end(); ) {
+                auto &vec = topicIt->second;
+                auto it = std::find_if(vec.begin(), vec.end(), [id](const ReaderEntry &e) { return e.id == id; });
+                if (it != vec.end()) {
+                    vec.erase(it);
+                    LOG_INF("DDS", "removed reader id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, subIt->first.c_str(), topicIt->first.c_str());
+                    if (vec.empty()) {
+                        topicIt = topic_map.erase(topicIt);
+                    } else {
+                        ++topicIt;
+                    }
+                    if (topic_map.empty()) {
+                        subIt = submap.erase(subIt);
+                    }
+                    return DdsResult(true, DdsErrorCategory::None, "Reader removed: id=" + std::to_string(id));
+                } else {
+                    ++topicIt;
+                }
+            }
+            ++subIt;
+        }
+    }
+    return DdsResult(false, DdsErrorCategory::Logic, "Reader id not found: " + std::to_string(id));
 }
 
 

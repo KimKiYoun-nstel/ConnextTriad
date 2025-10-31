@@ -13,10 +13,12 @@
  */
 #pragma once
 #include <algorithm>
+#include <atomic>
 #include <functional>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <vector>
 #include <unordered_map>
 
 #include <dds/dds.hpp>
@@ -85,25 +87,31 @@ public:
     /**
      * @brief 도메인/이름/토픽/타입별 writer 생성
      */
+    // out_id: optional output parameter to receive the created writer id
     DdsResult create_writer(int domain_id, const std::string& pub_name, const std::string& topic,
-                            const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile);
+                            const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile,
+                            uint64_t* out_id = nullptr);
 
     /**
      * @brief 도메인/이름/토픽/타입별 reader 생성
      */
+    // out_id: optional output parameter to receive the created reader id
     DdsResult create_reader(int domain_id, const std::string& sub_name, const std::string& topic,
-                            const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile);
+                            const std::string& type_name, const std::string& qos_lib, const std::string& qos_profile,
+                            uint64_t* out_id = nullptr);
 
     /**
-     * @brief 토픽에 텍스트 샘플 publish (기본 도메인/퍼블리셔)
+     * @brief 토픽에 JSON 객체 기반 샘플 publish (기본 도메인/퍼블리셔)
+     * @param topic 토픽명
+     * @param j JSON 객체(타입별 필드)
      */
-    DdsResult publish_text(const std::string& topic, const std::string& text);
+    DdsResult publish_json(const std::string& topic, const nlohmann::json& j);
 
     /**
-     * @brief 도메인/퍼블리셔/토픽별로 텍스트 샘플 publish
+     * @brief 도메인/퍼블리셔/토픽별로 JSON 객체 기반 샘플 publish
      */
-    DdsResult publish_text(int domain_id, const std::string& pub_name, const std::string& topic,
-                           const std::string& text);
+    DdsResult publish_json(int domain_id, const std::string& pub_name, const std::string& topic,
+                           const nlohmann::json& j);
 
     /**
      * @brief 샘플 수신 콜백 핸들러 타입
@@ -128,8 +136,12 @@ public:
      * @return 타입명(없으면 빈 문자열)
      */
     std::string get_type_for_topic(const std::string& topic) const {
-        auto it = topic_to_type_.find(topic);
-        return (it != topic_to_type_.end()) ? it->second : "";
+        // domain-aware lookup: return first matching type across domains (if any)
+        for (const auto &dom : topic_to_type_) {
+            auto it = dom.second.find(topic);
+            if (it != dom.second.end()) return it->second;
+        }
+        return std::string();
     }
 
     
@@ -145,17 +157,29 @@ private:
     std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::pub::Publisher> > > publishers_;
     // 도메인/이름별 subscriber
     std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<dds::sub::Subscriber> > > subscribers_;
-    // 도메인/이름/토픽별 writer
-    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IWriterHolder> > > > writers_;
-    // 도메인/이름/토픽별 reader
-    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<IReaderHolder> > > > readers_;
+    // 도메인/이름/토픽별 writer (여러 writer 허용)
+    using HolderId = uint64_t;
+    struct WriterEntry { HolderId id; std::shared_ptr<IWriterHolder> holder; };
+    struct ReaderEntry { HolderId id; std::shared_ptr<IReaderHolder> holder; };
+
+    // writers: domain -> publisher name -> topic -> vector of entries
+    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::vector<WriterEntry> > > > writers_;
+    // readers: domain -> subscriber name -> topic -> vector of entries
+    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::vector<ReaderEntry> > > > readers_;
+
+    // next id generator for writer/reader entries
+    std::atomic<HolderId> next_holder_id_{1};
 
     // 샘플 수신 콜백
     SampleHandler on_sample_;
 
-    // 토픽명 → 타입명 매핑
-    std::unordered_map<std::string, std::string> topic_to_type_{};
-    // 도메인/이름/토픽별 topic holder
-    std::unordered_map<int, std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<ITopicHolder>>>> topics_;
+    // 토픽명 → 타입명 매핑 (도메인별 분리)
+    std::unordered_map<int, std::unordered_map<std::string, std::string>> topic_to_type_{};
+    // 도메인/토픽별 topic holder (participant 스코프)
+    std::unordered_map<int, std::unordered_map<std::string, std::shared_ptr<ITopicHolder>>> topics_;
+
+    // Remove individual writer/reader by id
+    DdsResult remove_writer(HolderId id);
+    DdsResult remove_reader(HolderId id);
 };
 }  // namespace rtpdds

@@ -129,7 +129,6 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
 
     LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
 
-    nlohmann::json display;
     nlohmann::json data_json;
 
     const void* sample_ptr = nullptr;
@@ -145,20 +144,20 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
 
     bool ok = sample_ptr ? rtpdds::dds_to_json(type_name, sample_ptr, data_json) : false;
 
-    if (ok) {
-        display = data_json;
-        auto s = display.dump();
-        if (s.size() > 2048) s.resize(2048);
-        LOG_DBG("IPC", "display json preview=%s", s.c_str());
-    } else {
-        display = nullptr;
+    if (!ok) {
         data_json = nlohmann::json();
         LOG_WRN("IPC", "dds_to_json failed type=%s", type_name.c_str());
+    } else {
+        // Keep a truncated preview only for server-side logs; do not include a separate
+        // "display" field in the EVT payload. The EVT carries the full JSON object
+        // in the "data" field per protocol (object-first).
+        auto preview = data_json.dump();
+        if (preview.size() > 2048) preview.resize(2048);
+        LOG_DBG("IPC", "data json preview=%s", preview.c_str());
     }
 
-    nlohmann::json evt = {
-        {"evt", "data"}, {"topic", topic}, {"type", type_name}, {"display", display}, {"data", data_json}};
-    LOG_INF("IPC", "send EVT topic=%s type=%s has_display=%d", topic.c_str(), type_name.c_str(), !display.is_null());
+    nlohmann::json evt = {{"evt", "data"}, {"topic", topic}, {"type", type_name}, {"data", data_json}};
+    LOG_INF("IPC", "send EVT topic=%s type=%s", topic.c_str(), type_name.c_str());
 
     auto out = nlohmann::json::to_cbor(evt);
     // OUT flow log for event
@@ -414,11 +413,12 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 LOG_DBG("IPC",
                         "Calling DdsManager::create_writer(domain=%d, pub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
                         domain, pub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
-                DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof);
+                uint64_t holder_id = 0;
+                DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
                     LOG_INF("IPC", "writer created: domain=%d pub=%s topic=%s type=%s", domain, pub.c_str(),
                             topic.c_str(), type.c_str());
-                    rsp = { {"ok", true}, {"result", {{"action", "writer created"}, {"domain", domain}, {"publisher", pub}, {"topic", topic}, {"type", type}}} };
+                    rsp = { {"ok", true}, {"result", {{"action", "writer created"}, {"domain", domain}, {"publisher", pub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
                     ok = true;
                 } else {
                     LOG_ERR(
@@ -448,11 +448,12 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 LOG_DBG("IPC",
                         "Calling DdsManager::create_reader(domain=%d, sub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
                         domain, sub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
-                DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof);
+                uint64_t holder_id = 0;
+                DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
                     LOG_INF("IPC", "reader created: domain=%d sub=%s topic=%s type=%s", domain, sub.c_str(),
                             topic.c_str(), type.c_str());
-                    rsp = { {"ok", true}, {"result", {{"action", "reader created"}, {"domain", domain}, {"subscriber", sub}, {"topic", topic}, {"type", type}}} };
+                    rsp = { {"ok", true}, {"result", {{"action", "reader created"}, {"domain", domain}, {"subscriber", sub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
                     ok = true;
                 } else {
                     LOG_ERR(
@@ -466,22 +467,28 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         auto do_write = [&]() {
             if (kind != "writer") return;
             std::string topic = target.value("topic", "");
-            std::string text = req["data"].value("text", "");
             if (topic.empty()) {
-                LOG_ERR("IPC", "publish_text failed: missing topic tag");
+                LOG_ERR("IPC", "publish_json failed: missing topic tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic tag"} };
+                return;
+            }
+            // Expect data to be a JSON object
+            if (!req.contains("data") || !req["data"].is_object()) {
+                LOG_ERR("IPC", "publish_json failed: missing or invalid data object for topic=%s", topic.c_str());
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object"} };
+                return;
+            }
+            nlohmann::json data_json = req["data"];
+            LOG_DBG("IPC", "Calling DdsManager::publish_json(topic=%s, data=%s)", topic.c_str(), data_json.dump().c_str());
+            DdsResult res = mgr_.publish_json(topic, data_json);
+            if (res.ok) {
+                LOG_INF("IPC", "publish_json ok: topic=%s", topic.c_str());
+                rsp = { {"ok", true}, {"result", {{"action", "publish ok"}, {"topic", topic}}} };
+                ok = true;
             } else {
-                LOG_DBG("IPC", "Calling DdsManager::publish_text(topic=%s, text=%s)", topic.c_str(), text.c_str());
-                DdsResult res = mgr_.publish_text(topic, text);
-                if (res.ok) {
-                    LOG_INF("IPC", "publish_text ok: topic=%s", topic.c_str());
-                    rsp = { {"ok", true}, {"result", {{"action", "publish ok"}, {"topic", topic}}} };
-                    ok = true;
-                } else {
-                    LOG_ERR("IPC", "publish_text failed: topic=%s category=%d reason=%s", topic.c_str(),
-                            (int)res.category, res.reason.c_str());
-                    rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
-                }
+                LOG_ERR("IPC", "publish_json failed: topic=%s category=%d reason=%s", topic.c_str(),
+                        (int)res.category, res.reason.c_str());
+                rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
         };
 
@@ -530,7 +537,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         };
 
         // Dispatch by op
-        if (op == "clear" && (kind == "dds_entities" || target == "dds_entities")) {
+        if (op == "clear" && kind == "dds_entities") {
             do_clear();
         } else if (op == "create") {
             if (kind == "participant") create_participant();
