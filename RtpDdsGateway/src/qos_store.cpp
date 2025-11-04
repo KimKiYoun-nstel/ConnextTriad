@@ -149,6 +149,266 @@ static nlohmann::json summarize_runtime(const dds::pub::qos::DataWriterQos& w,
     return j;
 }
 
+// --- QoS → XML 변환 헬퍼 함수들 ---
+
+// Duration을 XML 형식으로 변환
+static std::string duration_to_xml(const dds::core::Duration& d, const std::string& indent = "")
+{
+    if (d == dds::core::Duration::infinite()) {
+        return indent + "<sec>DURATION_INFINITE_SEC</sec>\n" + 
+               indent + "<nanosec>DURATION_INFINITE_NSEC</nanosec>";
+    }
+    return indent + "<sec>" + std::to_string(d.sec()) + "</sec>\n" + 
+           indent + "<nanosec>" + std::to_string(d.nanosec()) + "</nanosec>";
+}
+
+// Reliability 정책을 XML로 변환
+static std::string reliability_to_xml(const dds::core::policy::Reliability& rel, const std::string& indent = "  ")
+{
+    std::string xml = indent + "<reliability>\n";
+    xml += indent + "  <kind>" + std::string(to_str(rel.kind())) + "_RELIABILITY_QOS</kind>\n";
+    
+    // max_blocking_time은 Writer QoS에만 해당
+    try {
+        const auto& mbt = rel.max_blocking_time();
+        if (mbt != dds::core::Duration::from_millisecs(100)) {  // 기본값이 아니면 포함
+            xml += indent + "  <max_blocking_time>\n";
+            xml += duration_to_xml(mbt, indent + "    ") + "\n";
+            xml += indent + "  </max_blocking_time>\n";
+        }
+    } catch (...) {}
+    
+    xml += indent + "</reliability>";
+    return xml;
+}
+
+// Durability 정책을 XML로 변환
+static std::string durability_to_xml(const dds::core::policy::Durability& dur, const std::string& indent = "  ")
+{
+    return indent + "<durability>\n" + 
+           indent + "  <kind>" + std::string(to_str(dur.kind())) + "_DURABILITY_QOS</kind>\n" + 
+           indent + "</durability>";
+}
+
+// History 정책을 XML로 변환
+static std::string history_to_xml(const dds::core::policy::History& hist, const std::string& indent = "  ")
+{
+    std::string xml = indent + "<history>\n";
+    xml += indent + "  <kind>" + std::string(to_str(hist.kind())) + "_HISTORY_QOS</kind>\n";
+    if (hist.kind() == dds::core::policy::HistoryKind::KEEP_LAST) {
+        xml += indent + "  <depth>" + std::to_string(hist.depth()) + "</depth>\n";
+    }
+    xml += indent + "</history>";
+    return xml;
+}
+
+// ResourceLimits 정책을 XML로 변환
+static std::string resource_limits_to_xml(const dds::core::policy::ResourceLimits& rl, const std::string& indent = "  ")
+{
+    auto fmt_limit = [](int v) -> std::string {
+        return (v == dds::core::LENGTH_UNLIMITED) ? "LENGTH_UNLIMITED" : std::to_string(v);
+    };
+    
+    std::string xml = indent + "<resource_limits>\n";
+    xml += indent + "  <max_samples>" + fmt_limit(rl.max_samples()) + "</max_samples>\n";
+    xml += indent + "  <max_instances>" + fmt_limit(rl.max_instances()) + "</max_instances>\n";
+    xml += indent + "  <max_samples_per_instance>" + fmt_limit(rl.max_samples_per_instance()) + "</max_samples_per_instance>\n";
+    xml += indent + "</resource_limits>";
+    return xml;
+}
+
+// Deadline 정책을 XML로 변환
+static std::string deadline_to_xml(const dds::core::policy::Deadline& dl, const std::string& indent = "  ")
+{
+    std::string xml = indent + "<deadline>\n";
+    xml += indent + "  <period>\n";
+    xml += duration_to_xml(dl.period(), indent + "    ") + "\n";
+    xml += indent + "  </period>\n";
+    xml += indent + "</deadline>";
+    return xml;
+}
+
+// LatencyBudget 정책을 XML로 변환
+static std::string latency_budget_to_xml(const dds::core::policy::LatencyBudget& lb, const std::string& indent = "  ")
+{
+    std::string xml = indent + "<latency_budget>\n";
+    xml += indent + "  <duration>\n";
+    xml += duration_to_xml(lb.duration(), indent + "    ") + "\n";
+    xml += indent + "  </duration>\n";
+    xml += indent + "</latency_budget>";
+    return xml;
+}
+
+// Liveliness 정책을 XML로 변환
+static std::string liveliness_to_xml(const dds::core::policy::Liveliness& lv, const std::string& indent = "  ")
+{
+    auto kind_to_str = [](dds::core::policy::LivelinessKind k) -> std::string {
+        using K = dds::core::policy::LivelinessKind;
+        if (k == K::MANUAL_BY_PARTICIPANT) return "MANUAL_BY_PARTICIPANT";
+        if (k == K::MANUAL_BY_TOPIC) return "MANUAL_BY_TOPIC";
+        return "AUTOMATIC";
+    };
+    
+    std::string xml = indent + "<liveliness>\n";
+    xml += indent + "  <kind>" + kind_to_str(lv.kind()) + "_LIVELINESS_QOS</kind>\n";
+    xml += indent + "  <lease_duration>\n";
+    xml += duration_to_xml(lv.lease_duration(), indent + "    ") + "\n";
+    xml += indent + "  </lease_duration>\n";
+    xml += indent + "</liveliness>";
+    return xml;
+}
+
+// Ownership 정책을 XML로 변환
+static std::string ownership_to_xml(const dds::core::policy::Ownership& own, const std::string& indent = "  ")
+{
+    return indent + "<ownership>\n" + 
+           indent + "  <kind>" + std::string(to_str(own.kind())) + "_OWNERSHIP_QOS</kind>\n" + 
+           indent + "</ownership>";
+}
+
+// OwnershipStrength 정책을 XML로 변환 (DataWriter만 해당)
+static std::string ownership_strength_to_xml(const dds::core::policy::OwnershipStrength& os, const std::string& indent = "  ")
+{
+    return indent + "<ownership_strength>\n" + 
+           indent + "  <value>" + std::to_string(os.value()) + "</value>\n" + 
+           indent + "</ownership_strength>";
+}
+
+// TransportPriority 정책을 XML로 변환 (DataWriter만 해당)
+static std::string transport_priority_to_xml(int32_t value, const std::string& indent = "  ")
+{
+    if (value == 0) return "";  // 기본값이면 생략
+    return indent + "<transport_priority>\n" + 
+           indent + "  <value>" + std::to_string(value) + "</value>\n" + 
+           indent + "</transport_priority>";
+}
+
+// DataWriter QoS를 XML로 변환
+static std::string datawriter_qos_to_xml(const dds::pub::qos::DataWriterQos& w)
+{
+    std::string xml = "  <datawriter_qos>\n";
+    
+    try {
+        xml += reliability_to_xml(w.policy<dds::core::policy::Reliability>(), "    ") + "\n";
+        xml += history_to_xml(w.policy<dds::core::policy::History>(), "    ") + "\n";
+        xml += resource_limits_to_xml(w.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        
+        const auto& dl = w.policy<dds::core::policy::Deadline>();
+        if (dl.period() != dds::core::Duration::infinite()) {
+            xml += deadline_to_xml(dl, "    ") + "\n";
+        }
+        
+        const auto& lb = w.policy<dds::core::policy::LatencyBudget>();
+        if (lb.duration() != dds::core::Duration::zero()) {
+            xml += latency_budget_to_xml(lb, "    ") + "\n";
+        }
+        
+        xml += liveliness_to_xml(w.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
+        xml += ownership_to_xml(w.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        
+        const auto& os = w.policy<dds::core::policy::OwnershipStrength>();
+        if (os.value() != 0) {
+            xml += ownership_strength_to_xml(os, "    ") + "\n";
+        }
+        
+        // TransportPriority
+        try {
+            const auto& tp = w.policy<dds::core::policy::TransportPriority>();
+            auto tp_xml = transport_priority_to_xml(tp.value(), "    ");
+            if (!tp_xml.empty()) xml += tp_xml + "\n";
+        } catch (...) {}
+        
+    } catch (const std::exception& e) {
+        LOG_WRN("DDS", "datawriter_qos_to_xml failed: %s", e.what());
+    }
+    
+    xml += "  </datawriter_qos>";
+    return xml;
+}
+
+// DataReader QoS를 XML로 변환
+static std::string datareader_qos_to_xml(const dds::sub::qos::DataReaderQos& r)
+{
+    std::string xml = "  <datareader_qos>\n";
+    
+    try {
+        xml += reliability_to_xml(r.policy<dds::core::policy::Reliability>(), "    ") + "\n";
+        xml += history_to_xml(r.policy<dds::core::policy::History>(), "    ") + "\n";
+        xml += resource_limits_to_xml(r.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        
+        const auto& dl = r.policy<dds::core::policy::Deadline>();
+        if (dl.period() != dds::core::Duration::infinite()) {
+            xml += deadline_to_xml(dl, "    ") + "\n";
+        }
+        
+        const auto& lb = r.policy<dds::core::policy::LatencyBudget>();
+        if (lb.duration() != dds::core::Duration::zero()) {
+            xml += latency_budget_to_xml(lb, "    ") + "\n";
+        }
+        
+        xml += liveliness_to_xml(r.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
+        xml += ownership_to_xml(r.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        
+    } catch (const std::exception& e) {
+        LOG_WRN("DDS", "datareader_qos_to_xml failed: %s", e.what());
+    }
+    
+    xml += "  </datareader_qos>";
+    return xml;
+}
+
+// Topic QoS를 XML로 변환
+static std::string topic_qos_to_xml(const dds::topic::qos::TopicQos& t)
+{
+    std::string xml = "  <topic_qos>\n";
+    
+    try {
+        xml += durability_to_xml(t.policy<dds::core::policy::Durability>(), "    ") + "\n";
+        xml += history_to_xml(t.policy<dds::core::policy::History>(), "    ") + "\n";
+        xml += resource_limits_to_xml(t.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        
+        const auto& dl = t.policy<dds::core::policy::Deadline>();
+        if (dl.period() != dds::core::Duration::infinite()) {
+            xml += deadline_to_xml(dl, "    ") + "\n";
+        }
+        
+        const auto& lb = t.policy<dds::core::policy::LatencyBudget>();
+        if (lb.duration() != dds::core::Duration::zero()) {
+            xml += latency_budget_to_xml(lb, "    ") + "\n";
+        }
+        
+        xml += liveliness_to_xml(t.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
+        xml += ownership_to_xml(t.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        
+    } catch (const std::exception& e) {
+        LOG_WRN("DDS", "topic_qos_to_xml failed: %s", e.what());
+    }
+    
+    xml += "  </topic_qos>";
+    return xml;
+}
+
+// QosPack을 완전한 qos_profile XML로 변환
+static std::string qos_pack_to_profile_xml(const std::string& profile_name,
+                                           const dds::pub::qos::DataWriterQos& w,
+                                           const dds::sub::qos::DataReaderQos& r,
+                                           const dds::topic::qos::TopicQos& t,
+                                           const std::string& base_name = "")
+{
+    std::string xml = "<qos_profile name=\"" + profile_name + "\"";
+    if (!base_name.empty()) {
+        xml += " base_name=\"" + base_name + "\"";
+    }
+    xml += ">\n";
+    
+    xml += datawriter_qos_to_xml(w) + "\n";
+    xml += datareader_qos_to_xml(r) + "\n";
+    xml += topic_qos_to_xml(t) + "\n";
+    
+    xml += "</qos_profile>";
+    return xml;
+}
+
 // Helper: parse all qos_library::qos_profile name pairs from a QoS XML file
 static std::vector<std::pair<std::string, std::string> > parse_profiles_from_file(const std::string& file_path)
 {
@@ -433,13 +693,47 @@ std::optional<QosPack> QosStore::resolve_from_providers(const std::string& lib, 
 std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const std::string& profile)
 {
     const auto k = key(lib, profile);
-    {  // read lock for cache
+    
+    // 1. 캐시 조회
+    {
         std::shared_lock lk(mtx_);
         auto it = cache_.find(k);
         if (it != cache_.end()) return it->second;
     }
 
-    {  // attempt resolve from current providers with unique lock
+    // 2. 동적 프로파일 조회 (우선순위 높음)
+    {
+        std::unique_lock lk(mtx_);
+        
+        // 캐시 재확인 (경쟁 조건 방지)
+        if (auto itc = cache_.find(k); itc != cache_.end()) return itc->second;
+        
+        // 동적 Provider에서 검색
+        auto dyn_prov_it = dynamic_providers_.find(lib);
+        if (dyn_prov_it != dynamic_providers_.end()) {
+            const std::string combined = lib + "::" + profile;
+            try {
+                QosPack p;
+                p.participant = dyn_prov_it->second->participant_qos(combined);
+                p.publisher = dyn_prov_it->second->publisher_qos(combined);
+                p.subscriber = dyn_prov_it->second->subscriber_qos(combined);
+                p.topic = dyn_prov_it->second->topic_qos(combined);
+                p.writer = dyn_prov_it->second->datawriter_qos(combined);
+                p.reader = dyn_prov_it->second->datareader_qos(combined);
+                p.origin_file = "(dynamic)";
+                
+                cache_[k] = p;
+                LOG_INF("DDS", "[qos-load] %s from dynamic provider", combined.c_str());
+                return p;
+            } catch (const std::exception& ex) {
+                // Profile이 해당 Library에 없음, 파일 기반으로 폴백
+                LOG_DBG("DDS", "[qos-dynamic] %s not found in dynamic library, trying file-based", combined.c_str());
+            }
+        }
+    }
+    
+    // 3. 파일 기반 Provider 조회
+    {
         std::unique_lock lk(mtx_);
         if (auto itc = cache_.find(k); itc != cache_.end()) return itc->second;
         if (auto pack = resolve_from_providers(lib, profile)) {
@@ -457,7 +751,7 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
         }
     }
 
-    // cache miss: reload all providers and retry
+    // 4. 캐시 미스: 모든 Provider 재로드 후 재시도
     reload_all();
 
     {
@@ -488,6 +782,48 @@ void QosStore::reload_all()
             (unsigned long long)cache_version_);
 }
 
+// Helper: XML 콘텐츠에서 특정 library::profile 추출 (파일이 아닌 문자열에서)
+static std::string extract_profile_xml_from_content(const std::string& content, const std::string& lib,
+                                                     const std::string& profile)
+{
+    try {
+        size_t search_pos = 0;
+        const std::string lib_tag = "<qos_library";
+        while (true) {
+            auto lib_pos = content.find(lib_tag, search_pos);
+            if (lib_pos == std::string::npos) break;
+            auto lib_tag_end = content.find('>', lib_pos);
+            if (lib_tag_end == std::string::npos) break;
+            std::string opening = content.substr(lib_pos, lib_tag_end - lib_pos + 1);
+            const std::string name1 = "name=\"" + lib + "\"";
+            const std::string name2 = "name='" + lib + "'";
+            if (opening.find(name1) != std::string::npos || opening.find(name2) != std::string::npos) {
+                auto lib_close = content.find("</qos_library>", lib_tag_end);
+                if (lib_close == std::string::npos) break;
+                std::string lib_block = content.substr(lib_tag_end + 1, lib_close - (lib_tag_end + 1));
+                size_t prof_pos = lib_block.find("<qos_profile");
+                while (prof_pos != std::string::npos) {
+                    auto prof_tag_end = lib_block.find('>', prof_pos);
+                    if (prof_tag_end == std::string::npos) break;
+                    std::string prof_open = lib_block.substr(prof_pos, prof_tag_end - prof_pos + 1);
+                    const std::string pname1 = "name=\"" + profile + "\"";
+                    const std::string pname2 = "name='" + profile + "'";
+                    if (prof_open.find(pname1) != std::string::npos || prof_open.find(pname2) != std::string::npos) {
+                        auto prof_close = lib_block.find("</qos_profile>", prof_tag_end);
+                        if (prof_close == std::string::npos) break;
+                        return lib_block.substr(prof_pos, prof_close + std::strlen("</qos_profile>") - prof_pos);
+                    }
+                    prof_pos = lib_block.find("<qos_profile", prof_tag_end);
+                }
+            }
+            search_pos = lib_tag_end + 1;
+        }
+    } catch (const std::exception& e) {
+        LOG_WRN("DDS", "extract_profile_xml_from_content failed: %s", e.what());
+    }
+    return {};
+}
+
 std::string QosStore::extract_profile_xml(const std::string& file_path, const std::string& lib,
                                           const std::string& profile)
 {
@@ -495,64 +831,25 @@ std::string QosStore::extract_profile_xml(const std::string& file_path, const st
         std::ifstream ifs(file_path);
         if (!ifs) return {};
         std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
-
-        // Simple and robust parser: find qos_library opening tag that has matching name attribute,
-        // then find qos_profile inside it with matching name attribute. Avoid complex regex flags.
-        size_t search_pos = 0;
-        const std::string lib_tag = "<qos_library";
-        while (true) {
-            auto lib_pos = content.find(lib_tag, search_pos);
-            if (lib_pos == std::string::npos) break;
-            // find end of opening tag
-            auto lib_tag_end = content.find('>', lib_pos);
-            if (lib_tag_end == std::string::npos) break;
-            std::string opening = content.substr(lib_pos, lib_tag_end - lib_pos + 1);
-            // check for name attribute in opening tag
-            const std::string name1 = "name=\"" + lib + "\"";
-            const std::string name2 = "name='" + lib + "'";
-            if (opening.find(name1) != std::string::npos || opening.find(name2) != std::string::npos) {
-                // find closing </qos_library>
-                auto lib_close = content.find("</qos_library>", lib_tag_end);
-                if (lib_close == std::string::npos) break;
-                std::string lib_block = content.substr(lib_tag_end + 1, lib_close - (lib_tag_end + 1));
-                // search for qos_profile inside lib_block
-                size_t prof_pos = lib_block.find("<qos_profile");
-                while (prof_pos != std::string::npos) {
-                    // find end of opening profile tag
-                    auto prof_tag_end = lib_block.find('>', prof_pos);
-                    if (prof_tag_end == std::string::npos) break;
-                    std::string prof_open = lib_block.substr(prof_pos, prof_tag_end - prof_pos + 1);
-                    const std::string pname1 = "name=\"" + profile + "\"";
-                    const std::string pname2 = "name='" + profile + "'";
-                    if (prof_open.find(pname1) != std::string::npos || prof_open.find(pname2) != std::string::npos) {
-                        // find closing </qos_profile>
-                        auto prof_close = lib_block.find("</qos_profile>", prof_tag_end);
-                        if (prof_close == std::string::npos) break;
-                        // return full profile element including tags
-                        size_t abs_start = lib_pos + (lib_tag_end + 1 - lib_pos) + prof_pos;
-                        size_t abs_end =
-                            lib_pos + (lib_tag_end + 1 - lib_pos) + prof_close + std::strlen("</qos_profile>");
-                        return content.substr(abs_start - (prof_pos),
-                                              (prof_close + std::strlen("</qos_profile>")) - prof_pos);
-                    }
-                    // move to next profile inside lib_block
-                    prof_pos = lib_block.find("<qos_profile", prof_tag_end);
-                }
-            }
-            search_pos = lib_tag_end + 1;
-        }
+        return extract_profile_xml_from_content(content, lib, profile);
     } catch (const std::exception& e) {
         LOG_WRN("DDS", "extract_profile_xml failed: %s", e.what());
     }
     return {};
 }
 
-// Return a sorted unique list of available profiles (external first from providers, thenbuiltin candidates)
+// Return a sorted unique list of available profiles (dynamic, external, then builtin)
 std::vector<std::string> QosStore::list_profiles(bool include_builtin) const
 {
     std::vector<std::string> out;
     std::shared_lock lk(mtx_);
-    // external: iterate providers in load order and collect pairs
+    
+    // 1. 동적 프로파일 (우선순위 최상위)
+    for (const auto& full_name : dynamic_profiles_index_) {
+        out.push_back(full_name);
+    }
+    
+    // 2. 외부 파일 기반 프로파일
     for (const auto& pe : providers_) {
         auto pairs = parse_profiles_from_file(pe.path);
         for (const auto& lp : pairs) {
@@ -570,7 +867,8 @@ std::vector<std::string> QosStore::list_profiles(bool include_builtin) const
 }
 
 // Build detail JSON as an ARRAY of entries aligned with list_profiles() order.
-// Each entry has the form: { "name": "lib::profile", "detail": { source_kind:..., discovery:{}, runtime:{} } }
+// Each entry has the form: { "name": "lib::profile", "detail": { source_kind, xml } }
+// Optional: discovery/runtime JSON fields (currently commented out - enable if needed)
 nlohmann::json QosStore::detail_profiles(bool include_builtin) const
 {
     // Build the detail map first (same as previous behavior), then convert to an array
@@ -582,8 +880,19 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
             auto w = prov.datawriter_qos(full);
             auto r = prov.datareader_qos(full);
             auto t = prov.topic_qos(full);
-            obj["discovery"] = summarize_discovery(w, r, t);
-            obj["runtime"] = summarize_runtime(w, r, t);
+            
+            // Optional: discovery/runtime JSON 요약 (현재 비활성화 - 필요 시 주석 해제)
+            // obj["discovery"] = summarize_discovery(w, r, t);
+            // obj["runtime"] = summarize_runtime(w, r, t);
+            
+            // XML 전문 생성: profile 이름만 추출 (lib:: 제거)
+            std::string profile_name = full;
+            auto pos = full.find("::");
+            if (pos != std::string::npos) {
+                profile_name = full.substr(pos + 2);
+            }
+            obj["xml"] = qos_pack_to_profile_xml(profile_name, w, r, t);
+            
             return true;
         } catch (const std::exception& ex) {
             (void)ex;
@@ -593,7 +902,35 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
         }
     };
 
-    // 1) 외부: "통합된 값"만 (effective) + source_kind
+    // 1) 동적 프로파일 (우선순위 최상위)
+    for (const auto& [lib_name, provider] : dynamic_providers_) {
+        // dynamic_profiles_index_에서 해당 Library에 속한 Profile 추출
+        for (const auto& full_name : dynamic_profiles_index_) {
+            // full_name 형식: "LibName::ProfileName"
+            if (full_name.find(lib_name + "::") == 0) {
+                nlohmann::json obj;
+                if (!fill_effective(*provider, full_name, obj)) {
+                    LOG_DBG("DDS", "[qos-detail] dynamic profile=%s not found or summarize failed", full_name.c_str());
+                    continue;
+                }
+                obj["source_kind"] = "dynamic";
+                
+                // 동적 프로파일의 경우 저장된 XML 사용 (가능하면)
+                auto lib_xml_it = dynamic_libraries_.find(lib_name);
+                if (lib_xml_it != dynamic_libraries_.end()) {
+                    std::string profile_name = full_name.substr(lib_name.size() + 2);  // "lib::" 제거
+                    auto stored_xml = extract_profile_xml_from_content(lib_xml_it->second, lib_name, profile_name);
+                    if (!stored_xml.empty()) {
+                        obj["xml"] = stored_xml;
+                    }
+                }
+                
+                detail_map[full_name] = obj;
+            }
+        }
+    }
+
+    // 2) 외부 파일 기반: "통합된 값"만 (effective) + source_kind + 원본 XML
     for (auto it = providers_.rbegin(); it != providers_.rend(); ++it) {  // 마지막 로드 우선
         auto pairs = parse_profiles_from_file(it->path);
         for (const auto& lp : pairs) {
@@ -607,13 +944,22 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
             }
             obj["source_kind"] = "external";
 
-            // 마지막 로드 우선 정책: 기존에 있으면 덮어씀
-            detail_map[full] = std::move(obj);
-            LOG_DBG("DDS", "[qos-detail] loaded external profile=%s from=%s", full.c_str(), it->path.c_str());
+            // 원본 파일에서 XML 추출 (있으면 덮어씀)
+            auto file_xml = extract_profile_xml(it->path, lp.first, lp.second);
+            if (!file_xml.empty()) {
+                obj["xml"] = file_xml;
+            }
+
+            // 마지막 로드 우선 정책: 동적 프로파일이 아닌 경우에만 덮어씀
+            if (detail_map.find(full) == detail_map.end() || 
+                detail_map[full].value("source_kind", "") != "dynamic") {
+                detail_map[full] = std::move(obj);
+                LOG_DBG("DDS", "[qos-detail] loaded external profile=%s from=%s", full.c_str(), it->path.c_str());
+            }
         }
     }
 
-    // 2) 내장: use QosProvider::Default() + RTI helper profile name strings
+    // 3) 내장: use QosProvider::Default() + RTI helper profile name strings
     if (include_builtin) {
         try {
             auto prov = dds::core::QosProvider::Default();
@@ -649,6 +995,156 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
     }
 
     return detail_arr;
+}
+
+// Helper: Profile XML을 Library XML에 병합 (교체 또는 추가)
+static std::string merge_profile_into_library(const std::string& lib_xml, 
+                                               const std::string& profile_name, 
+                                               const std::string& profile_xml)
+{
+    try {
+        // Profile XML 정규화 (qos_profile 태그가 없으면 에러)
+        std::string normalized_profile = profile_xml;
+        if (profile_xml.find("<qos_profile") == std::string::npos) {
+            // profile_xml이 qos_profile 태그를 포함하지 않으면 실패
+            return "";
+        }
+        
+        // Library XML 파싱 (</qos_library> 태그 위치 찾기)
+        size_t lib_close_pos = lib_xml.find("</qos_library>");
+        if (lib_close_pos == std::string::npos) {
+            return "";  // 잘못된 Library XML
+        }
+        
+        // 기존 Library 내에서 동일한 profile_name을 가진 qos_profile 찾기
+        std::string lib_opening = lib_xml.substr(0, lib_close_pos);
+        
+        // Profile 검색 패턴: <qos_profile name="profile_name"
+        std::string search_pattern = "<qos_profile";
+        size_t search_pos = 0;
+        size_t found_prof_start = std::string::npos;
+        size_t found_prof_end = std::string::npos;
+        
+        while (true) {
+            size_t prof_pos = lib_opening.find(search_pattern, search_pos);
+            if (prof_pos == std::string::npos) break;
+            
+            // 태그 끝 찾기
+            size_t tag_end = lib_opening.find('>', prof_pos);
+            if (tag_end == std::string::npos) break;
+            
+            std::string opening_tag = lib_opening.substr(prof_pos, tag_end - prof_pos + 1);
+            
+            // name 속성 추출
+            std::string extracted_name;
+            auto name_pos = opening_tag.find("name=");
+            if (name_pos != std::string::npos) {
+                size_t quote = opening_tag.find_first_of("\"'", name_pos + 5);
+                if (quote != std::string::npos) {
+                    char q = opening_tag[quote];
+                    size_t quote_end = opening_tag.find(q, quote + 1);
+                    if (quote_end != std::string::npos) {
+                        extracted_name = opening_tag.substr(quote + 1, quote_end - (quote + 1));
+                    }
+                }
+            }
+            
+            // 일치하는 Profile 발견
+            if (extracted_name == profile_name) {
+                found_prof_start = prof_pos;
+                // </qos_profile> 찾기
+                size_t prof_close = lib_opening.find("</qos_profile>", tag_end);
+                if (prof_close != std::string::npos) {
+                    found_prof_end = prof_close + std::strlen("</qos_profile>");
+                }
+                break;
+            }
+            
+            search_pos = tag_end + 1;
+        }
+        
+        std::string result;
+        if (found_prof_start != std::string::npos && found_prof_end != std::string::npos) {
+            // 기존 Profile 교체
+            result = lib_xml.substr(0, found_prof_start) + 
+                     "  " + normalized_profile + "\n" +
+                     lib_xml.substr(found_prof_end);
+        } else {
+            // 새 Profile 추가 (</qos_library> 직전에 삽입)
+            result = lib_xml.substr(0, lib_close_pos) + 
+                     "  " + normalized_profile + "\n" +
+                     lib_xml.substr(lib_close_pos);
+        }
+        
+        return result;
+        
+    } catch (const std::exception& ex) {
+        LOG_ERR("DDS", "merge_profile_into_library exception: %s", ex.what());
+        return "";
+    }
+}
+
+std::string QosStore::add_or_update_profile(const std::string& library, 
+                                             const std::string& profile, 
+                                             const std::string& profile_xml)
+{
+    std::unique_lock lk(mtx_);
+    
+    try {
+        // 1. 기존 Library XML 조회 (없으면 빈 템플릿 생성)
+        std::string lib_xml;
+        auto lib_it = dynamic_libraries_.find(library);
+        if (lib_it != dynamic_libraries_.end()) {
+            lib_xml = lib_it->second;
+        } else {
+            // 새 Library 템플릿 생성
+            lib_xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+<dds>
+  <qos_library name=")" + library + R"(">
+  </qos_library>
+</dds>)";
+        }
+        
+        // 2. Profile XML 병합 (교체 또는 추가)
+        std::string updated_lib_xml = merge_profile_into_library(lib_xml, profile, profile_xml);
+        if (updated_lib_xml.empty()) {
+            LOG_ERR("DDS", "add_or_update_profile: failed to merge profile into library=%s profile=%s", 
+                    library.c_str(), profile.c_str());
+            return "";
+        }
+        
+        // 3. QosProvider 생성 (str:// URI 사용)
+        std::shared_ptr<dds::core::QosProvider> provider;
+        try {
+            // RTI Connext DDS는 str://"<XML>" 형식의 URI를 지원
+            // 따옴표를 이스케이프하지 않고, XML 전체를 str:// 뒤에 붙임
+            std::string qos_uri = "str://\"" + updated_lib_xml + "\"";
+            
+            provider = std::make_shared<dds::core::QosProvider>(qos_uri);
+            
+            LOG_DBG("DDS", "[qos-dynamic] created QosProvider from XML string for library=%s", library.c_str());
+            
+        } catch (const std::exception& ex) {
+            LOG_ERR("DDS", "add_or_update_profile: QosProvider creation failed: %s", ex.what());
+            return "";
+        }
+        
+        // 4. 저장
+        dynamic_libraries_[library] = updated_lib_xml;
+        dynamic_providers_[library] = provider;
+        const std::string full_name = library + "::" + profile;
+        dynamic_profiles_index_.insert(full_name);
+        
+        // 5. 캐시 무효화 (해당 프로파일만)
+        cache_.erase(key(library, profile));
+        
+        LOG_INF("DDS", "[qos-dynamic] added/updated %s", full_name.c_str());
+        return full_name;
+        
+    } catch (const std::exception& ex) {
+        LOG_ERR("DDS", "add_or_update_profile exception: %s", ex.what());
+        return "";
+    }
 }
 
 }  // namespace rtpdds

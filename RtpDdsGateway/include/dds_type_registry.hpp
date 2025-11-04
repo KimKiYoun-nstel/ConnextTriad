@@ -68,6 +68,19 @@ struct WriterHolder : public IWriterHolder {
     std::shared_ptr<dds::pub::DataWriter<T> > writer;
     std::shared_ptr<void> writer_holder_guard;
     explicit WriterHolder(std::shared_ptr<dds::pub::DataWriter<T> > w) : writer(std::move(w)) {}
+    
+    ~WriterHolder() {
+        // DDS Writer 파괴 전 리스너를 명시적으로 해제하여 Use-After-Free 방지
+        if (writer) {
+            try {
+                writer->set_listener(nullptr, dds::core::status::StatusMask::none());
+            } catch (...) {
+                // 예외 무시 (소멸자에서 안전)
+            }
+        }
+        writer_holder_guard.reset();
+    }
+    
     void write_any(const AnyData& data) override
     {
         try {
@@ -164,6 +177,18 @@ template <typename T>
 struct ReaderHolder : IReaderHolder {
     std::shared_ptr<dds::sub::DataReader<T> > reader;
     explicit ReaderHolder(std::shared_ptr<dds::sub::DataReader<T> > r) : reader(std::move(r)) {}
+    
+    ~ReaderHolder() {
+        // DDS Reader 파괴 전 리스너를 명시적으로 해제하여 Use-After-Free 방지
+        if (reader) {
+            try {
+                reader->listener(nullptr, dds::core::status::StatusMask::none());
+            } catch (...) {
+                // 예외 무시 (소멸자에서 안전)
+            }
+        }
+        listener_guard.reset();
+    }
 
     std::shared_ptr<void> listener_guard;          // 수명 보관
     dds::core::status::StatusMask current_mask{};  // 현재 마스크

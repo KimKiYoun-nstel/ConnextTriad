@@ -17,6 +17,7 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -131,6 +132,17 @@ public:
     nlohmann::json list_qos_profiles(bool include_builtin = false, bool include_detail = false) const;
 
     /**
+     * @brief QoS 프로파일을 동적으로 추가 또는 업데이트합니다 (IPC set.qos용)
+     * @param library Library 이름
+     * @param profile Profile 이름
+     * @param profile_xml qos_profile 태그를 포함한 XML 조각
+     * @return 성공 시 "library::profile" 형식의 전체 이름, 실패 시 빈 문자열
+     */
+    std::string add_or_update_qos_profile(const std::string& library, 
+                                          const std::string& profile, 
+                                          const std::string& profile_xml);
+
+    /**
      * @brief 토픽명으로 타입명을 조회합니다.
      * @param topic 토픽명
      * @return 타입명(없으면 빈 문자열)
@@ -148,6 +160,15 @@ public:
 private:
     TypeRegistry type_registry_;
     std::unique_ptr<rtpdds::QosStore> qos_store_;
+    
+    // 스레드 동기화: DDS 엔티티 컨테이너 보호용 뮤텍스
+    mutable std::mutex mutex_;
+
+    // 내부 헬퍼: mutex 이미 획득한 상태에서 pub/sub 생성 (재귀 호출 방지)
+    DdsResult create_publisher_locked(int domain_id, const std::string& pub_name, 
+                                      const std::string& qos_lib, const std::string& qos_profile);
+    DdsResult create_subscriber_locked(int domain_id, const std::string& sub_name,
+                                       const std::string& qos_lib, const std::string& qos_profile);
 
     // 적용 로깅 보조: 요약 tag/value 문자열
     static std::string summarize_qos(const rtpdds::QosPack& pack);

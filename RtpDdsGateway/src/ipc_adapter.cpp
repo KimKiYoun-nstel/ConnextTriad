@@ -280,6 +280,22 @@ static nlohmann::json build_hello_capabilities()
         caps.push_back(cap);
     }
 
+    // set.qos
+    {
+        nlohmann::json cap;
+        cap["name"] = "set.qos";
+        nlohmann::json example;
+        example["op"] = "set";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "qos";
+        example["data"] = nlohmann::json::object();
+        example["data"]["library"] = "NGVA_QoS_Library";
+        example["data"]["profile"] = "custom_profile";
+        example["data"]["xml"] = "<qos_profile name=\"custom_profile\">...</qos_profile>";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
+
     // evt.data description
     {
         nlohmann::json cap;
@@ -536,6 +552,41 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
             }
         };
 
+        auto do_set_qos = [&]() {
+            // QoS Profile 동적 추가/업데이트
+            // 요청: { "op": "set", "target": { "kind": "qos" }, "data": { "library": "...", "profile": "...", "xml": "..." } }
+            if (!req.contains("data") || !req["data"].is_object()) {
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object for set.qos"} };
+                return;
+            }
+            
+            const auto& data = req["data"];
+            std::string library = data.value("library", "");
+            std::string profile = data.value("profile", "");
+            std::string xml = data.value("xml", "");
+            
+            if (library.empty() || profile.empty() || xml.empty()) {
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing required fields: library, profile, xml"} };
+                return;
+            }
+            
+            // DdsManager의 QosStore에 Profile 추가/업데이트
+            std::string full_name = mgr_.add_or_update_qos_profile(library, profile, xml);
+            if (full_name.empty()) {
+                rsp = { {"ok", false}, {"err", 4}, {"msg", "Failed to add/update QoS profile"} };
+                return;
+            }
+            
+            ok = true;
+            rsp = {
+                {"ok", true},
+                {"result", {
+                    {"action", "qos profile updated"},
+                    {"profile", full_name}
+                }}
+            };
+        };
+
         // Dispatch by op
         if (op == "clear" && kind == "dds_entities") {
             do_clear();
@@ -551,6 +602,8 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
             do_hello();
         } else if (op == "get") {
             do_get();
+        } else if (op == "set" && kind == "qos") {
+            do_set_qos();
         }
         // NOTE: For brevity, other branches (publisher/subscriber/writer/reader/write/hello) should be
         // moved here similarly from the previous on_request implementation.

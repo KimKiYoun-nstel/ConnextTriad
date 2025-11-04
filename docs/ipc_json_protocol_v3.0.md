@@ -140,7 +140,12 @@
 - 응답
   - ok: true/false
   - result: string 배열 (예: ["Lib::Profile", ...])
-  - detail: array|object, 선택 — 프로파일 상세(요청 시에만 포함)
+  - detail: array, 선택 — 프로파일 상세(요청 시에만 포함)
+    - 각 항목: { "Lib::Profile": { source_kind, xml, [discovery], [runtime] } }
+    - source_kind: "dynamic" | "external" | "builtin" (필수)
+    - xml: `<qos_profile>...</qos_profile>` 전체 XML 문자열 (필수, 주요 10개 정책 포함, set.qos에서 그대로 재사용 가능)
+    - discovery: 발견/매칭 관련 QoS 요약 (선택, 현재 비활성화)
+    - runtime: 런타임 동작 관련 QoS 요약 (선택, 현재 비활성화)
 
 샘플
 
@@ -148,14 +153,182 @@
 { "op": "get", "target": { "kind": "qos" }, "args": { "include_builtin": true, "detail": true } }
 ```
 
+응답 (detail 포함)
+
 ```json
-{ "ok": true, "result": [ "TriadQosLib::DefaultReliable" ], "detail": [ { "TriadQosLib::DefaultReliable": {} } ] }
+{
+  "ok": true,
+  "result": [
+    "NGVA_QoS_Library::control_low_latency_reliable",
+    "TriadQosLib::DefaultReliable"
+  ],
+  "detail": [
+    {
+      "NGVA_QoS_Library::control_low_latency_reliable": {
+        "source_kind": "external",
+        "xml": "<qos_profile name=\"control_low_latency_reliable\" base_name=\"NetLib::BaseUdpOnly\">\n  <datawriter_qos>\n    <reliability>\n      <kind>RELIABLE_RELIABILITY_QOS</kind>\n    </reliability>\n    <history>\n      <kind>KEEP_LAST_HISTORY_QOS</kind>\n      <depth>1</depth>\n    </history>\n    <resource_limits>\n      <max_samples>32</max_samples>\n      <max_instances>1</max_instances>\n      <max_samples_per_instance>32</max_samples_per_instance>\n    </resource_limits>\n    <deadline>\n      <period>\n        <sec>0</sec>\n        <nanosec>100000000</nanosec>\n      </period>\n    </deadline>\n    <latency_budget>\n      <duration>\n        <sec>0</sec>\n        <nanosec>3000000</nanosec>\n      </duration>\n    </latency_budget>\n    <liveliness>\n      <kind>AUTOMATIC_LIVELINESS_QOS</kind>\n      <lease_duration>\n        <sec>DURATION_INFINITE_SEC</sec>\n        <nanosec>DURATION_INFINITE_NSEC</nanosec>\n      </lease_duration>\n    </liveliness>\n    <ownership>\n      <kind>EXCLUSIVE_OWNERSHIP_QOS</kind>\n    </ownership>\n    <ownership_strength>\n      <value>0</value>\n    </ownership_strength>\n    <transport_priority>\n      <value>100</value>\n    </transport_priority>\n  </datawriter_qos>\n  <datareader_qos>\n    ...\n  </datareader_qos>\n  <topic_qos>\n    ...\n  </topic_qos>\n</qos_profile>"
+      }
+    },
+    {
+      "TriadQosLib::DefaultReliable": {
+        "source_kind": "dynamic",
+        "xml": "<qos_profile name=\"DefaultReliable\">...</qos_profile>"
+      }
+    }
+  ]
+}
+```
+
+응답 (discovery/runtime 활성화 시 - 선택적)
+
+```json
+{
+  "ok": true,
+  "result": ["NGVA_QoS_Library::control_low_latency_reliable"],
+  "detail": [
+    {
+      "NGVA_QoS_Library::control_low_latency_reliable": {
+        "source_kind": "external",
+        "discovery": {
+          "reliability": "RELIABLE",
+          "durability": "VOLATILE",
+          "ownership": "EXCLUSIVE",
+          "presentation": "N/A",
+          "partition": []
+        },
+        "runtime": {
+          "history": { "kind": "KEEP_LAST", "depth": 1 },
+          "resource_limits": { "max_samples": 32, "max_instances": 1, "max_samples_per_instance": 32 },
+          "deadline": { "sec": 0, "nanosec": 100000000 },
+          "latency_budget": { "sec": 0, "nanosec": 3000000 },
+          "liveliness": { "kind": "AUTOMATIC", "lease_duration": "INFINITE" }
+        },
+        "xml": "<qos_profile>...</qos_profile>"
+      }
+    }
+  ]
+}
+```
+
+응답 (detail 미포함)
+
+```json
+{
+  "ok": true,
+  "result": [
+    "NGVA_QoS_Library::control_low_latency_reliable",
+    "TriadQosLib::DefaultReliable"
+  ]
+}
 ```
 
 예외 시
 
 ```json
 { "ok": false, "err": 4, "msg": "failed to build qos list" }
+```
+
+**중요**:
+
+- `detail[].xml` 필드의 XML은 `set.qos`의 `data.xml` 필드에 그대로 전달할 수 있습니다.
+- UI는 이를 통해 기존 프로파일을 수정하거나 복제할 수 있습니다.
+- XML에는 주요 10개 QoS 정책(reliability, durability, ownership, history, resource_limits, deadline, latency_budget, liveliness, ownership_strength, transport_priority)이 포함됩니다.
+- discovery/runtime 필드는 현재 비활성화되어 있으며, 필요 시 코드 주석 해제로 활성화 가능합니다.
+
+### 4.2.1 set (QoS 동적 추가/업데이트)
+
+- 목적: QoS 프로파일을 동적으로 추가하거나 기존 프로파일 업데이트 (메모리에만 저장, 파일 저장 안 함)
+- 요청
+  - op = "set"
+  - target.kind = "qos"
+  - data.library: string, 필수 — Library 이름 (예: "NGVA_QoS_Library")
+  - data.profile: string, 필수 — Profile 이름 (예: "custom_profile")
+  - data.xml: string, 필수 — `<qos_profile>` 전체 XML 문자열
+- 응답
+  - ok: true/false
+  - result.action = "qos profile updated"
+  - result.profile = "Library::Profile" 형식의 전체 이름
+
+동작 방식
+
+- Library가 존재하지 않으면 자동 생성
+- Library가 존재하고 동일 Profile이 있으면 교체
+- Library가 존재하고 동일 Profile이 없으면 추가
+- 동적 프로파일은 `get.qos`에서 `source_kind="dynamic"`으로 반환
+- 우선순위: 동적 프로파일 > 파일 기반 > 내장 프로파일
+
+샘플 (새 Profile 추가)
+
+```json
+{
+  "op": "set",
+  "target": { "kind": "qos" },
+  "data": {
+    "library": "NGVA_QoS_Library",
+    "profile": "custom_high_throughput",
+    "xml": "<qos_profile name=\"custom_high_throughput\" base_name=\"NetLib::BaseUdpOnly\"><datawriter_qos><reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability><durability><kind>VOLATILE_DURABILITY_QOS</kind></durability><history><kind>KEEP_LAST_HISTORY_QOS</kind><depth>100</depth></history><resource_limits><max_samples>1000</max_samples></resource_limits></datawriter_qos><datareader_qos><reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability><history><kind>KEEP_LAST_HISTORY_QOS</kind><depth>100</depth></history></datareader_qos></qos_profile>"
+  }
+}
+```
+
+응답
+
+```json
+{
+  "ok": true,
+  "result": {
+    "action": "qos profile updated",
+    "profile": "NGVA_QoS_Library::custom_high_throughput"
+  }
+}
+```
+
+샘플 (기존 Profile 업데이트 - 포맷팅된 XML)
+
+```json
+{
+  "op": "set",
+  "target": { "kind": "qos" },
+  "data": {
+    "library": "NGVA_QoS_Library",
+    "profile": "control_low_latency_reliable",
+    "xml": "<qos_profile name=\"control_low_latency_reliable\" is_default_qos=\"true\" base_name=\"NetLib::BaseUdpOnly\">\n  <datawriter_qos>\n    <reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability>\n    <durability><kind>VOLATILE_DURABILITY_QOS</kind></durability>\n    <history><kind>KEEP_LAST_HISTORY_QOS</kind><depth>5</depth></history>\n    <deadline><period><sec>0</sec><nanosec>50000000</nanosec></period></deadline>\n    <latency_budget><duration><sec>0</sec><nanosec>1000000</nanosec></duration></latency_budget>\n  </datawriter_qos>\n  <datareader_qos>\n    <reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability>\n    <durability><kind>VOLATILE_DURABILITY_QOS</kind></durability>\n    <history><kind>KEEP_LAST_HISTORY_QOS</kind><depth>5</depth></history>\n  </datareader_qos>\n</qos_profile>"
+  }
+}
+```
+
+응답
+
+```json
+{
+  "ok": true,
+  "result": {
+    "action": "qos profile updated",
+    "profile": "NGVA_QoS_Library::control_low_latency_reliable"
+  }
+}
+```
+
+사용 예시 (동적 프로파일로 Writer 생성)
+
+```json
+{
+  "op": "create",
+  "target": { "kind": "writer", "topic": "HighThroughputData", "type": "DataMsg" },
+  "args": { "domain": 0, "publisher": "pub1", "qos": "NGVA_QoS_Library::custom_high_throughput" }
+}
+```
+
+누락 오류 예
+
+```json
+{ "ok": false, "err": 6, "msg": "Missing required fields: library, profile, xml" }
+```
+
+처리 실패 예
+
+```json
+{ "ok": false, "err": 4, "msg": "Failed to add/update QoS profile" }
 ```
 
 ### 4.3 create (엔티티 생성)
