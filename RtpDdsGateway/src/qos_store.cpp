@@ -17,6 +17,12 @@ namespace fs = std::filesystem;
 namespace rtpdds
 {
 
+// Forward declarations for helper functions
+static std::string compress_xml(const std::string& xml);
+static std::string extract_profile_xml_from_content(const std::string& content, const std::string& lib,
+                                                     const std::string& profile);
+static std::vector<std::pair<std::string, std::string>> parse_profiles_from_file(const std::string& file_path);
+
 // Previously cached missing builtin libs (removed - we now use QosProvider::Default())
 
 // Minimal summarizers for discovery/runtime fields.
@@ -149,98 +155,79 @@ static nlohmann::json summarize_runtime(const dds::pub::qos::DataWriterQos& w,
     return j;
 }
 
-// --- QoS → XML 변환 헬퍼 함수들 ---
+// --- QoS → XML 변환 헬퍼 함수들 (압축 형식: 개행 없음) ---
 
-// Duration을 XML 형식으로 변환
-static std::string duration_to_xml(const dds::core::Duration& d, const std::string& indent = "")
+// Duration을 XML 형식으로 변환 (압축)
+static std::string duration_to_xml(const dds::core::Duration& d)
 {
     if (d == dds::core::Duration::infinite()) {
-        return indent + "<sec>DURATION_INFINITE_SEC</sec>\n" + 
-               indent + "<nanosec>DURATION_INFINITE_NSEC</nanosec>";
+        return "<sec>DURATION_INFINITE_SEC</sec><nanosec>DURATION_INFINITE_NSEC</nanosec>";
     }
-    return indent + "<sec>" + std::to_string(d.sec()) + "</sec>\n" + 
-           indent + "<nanosec>" + std::to_string(d.nanosec()) + "</nanosec>";
+    return "<sec>" + std::to_string(d.sec()) + "</sec><nanosec>" + std::to_string(d.nanosec()) + "</nanosec>";
 }
 
-// Reliability 정책을 XML로 변환
-static std::string reliability_to_xml(const dds::core::policy::Reliability& rel, const std::string& indent = "  ")
+// Reliability 정책을 XML로 변환 (압축)
+static std::string reliability_to_xml(const dds::core::policy::Reliability& rel)
 {
-    std::string xml = indent + "<reliability>\n";
-    xml += indent + "  <kind>" + std::string(to_str(rel.kind())) + "_RELIABILITY_QOS</kind>\n";
+    std::string xml = "<reliability><kind>" + std::string(to_str(rel.kind())) + "_RELIABILITY_QOS</kind>";
     
     // max_blocking_time은 Writer QoS에만 해당
     try {
         const auto& mbt = rel.max_blocking_time();
         if (mbt != dds::core::Duration::from_millisecs(100)) {  // 기본값이 아니면 포함
-            xml += indent + "  <max_blocking_time>\n";
-            xml += duration_to_xml(mbt, indent + "    ") + "\n";
-            xml += indent + "  </max_blocking_time>\n";
+            xml += "<max_blocking_time>" + duration_to_xml(mbt) + "</max_blocking_time>";
         }
     } catch (...) {}
     
-    xml += indent + "</reliability>";
+    xml += "</reliability>";
     return xml;
 }
 
-// Durability 정책을 XML로 변환
-static std::string durability_to_xml(const dds::core::policy::Durability& dur, const std::string& indent = "  ")
+// Durability 정책을 XML로 변환 (압축)
+static std::string durability_to_xml(const dds::core::policy::Durability& dur)
 {
-    return indent + "<durability>\n" + 
-           indent + "  <kind>" + std::string(to_str(dur.kind())) + "_DURABILITY_QOS</kind>\n" + 
-           indent + "</durability>";
+    return "<durability><kind>" + std::string(to_str(dur.kind())) + "_DURABILITY_QOS</kind></durability>";
 }
 
-// History 정책을 XML로 변환
-static std::string history_to_xml(const dds::core::policy::History& hist, const std::string& indent = "  ")
+// History 정책을 XML로 변환 (압축)
+static std::string history_to_xml(const dds::core::policy::History& hist)
 {
-    std::string xml = indent + "<history>\n";
-    xml += indent + "  <kind>" + std::string(to_str(hist.kind())) + "_HISTORY_QOS</kind>\n";
+    std::string xml = "<history><kind>" + std::string(to_str(hist.kind())) + "_HISTORY_QOS</kind>";
     if (hist.kind() == dds::core::policy::HistoryKind::KEEP_LAST) {
-        xml += indent + "  <depth>" + std::to_string(hist.depth()) + "</depth>\n";
+        xml += "<depth>" + std::to_string(hist.depth()) + "</depth>";
     }
-    xml += indent + "</history>";
+    xml += "</history>";
     return xml;
 }
 
-// ResourceLimits 정책을 XML로 변환
-static std::string resource_limits_to_xml(const dds::core::policy::ResourceLimits& rl, const std::string& indent = "  ")
+// ResourceLimits 정책을 XML로 변환 (압축)
+static std::string resource_limits_to_xml(const dds::core::policy::ResourceLimits& rl)
 {
     auto fmt_limit = [](int v) -> std::string {
         return (v == dds::core::LENGTH_UNLIMITED) ? "LENGTH_UNLIMITED" : std::to_string(v);
     };
     
-    std::string xml = indent + "<resource_limits>\n";
-    xml += indent + "  <max_samples>" + fmt_limit(rl.max_samples()) + "</max_samples>\n";
-    xml += indent + "  <max_instances>" + fmt_limit(rl.max_instances()) + "</max_instances>\n";
-    xml += indent + "  <max_samples_per_instance>" + fmt_limit(rl.max_samples_per_instance()) + "</max_samples_per_instance>\n";
-    xml += indent + "</resource_limits>";
-    return xml;
+    return "<resource_limits>"
+           "<max_samples>" + fmt_limit(rl.max_samples()) + "</max_samples>"
+           "<max_instances>" + fmt_limit(rl.max_instances()) + "</max_instances>"
+           "<max_samples_per_instance>" + fmt_limit(rl.max_samples_per_instance()) + "</max_samples_per_instance>"
+           "</resource_limits>";
 }
 
-// Deadline 정책을 XML로 변환
-static std::string deadline_to_xml(const dds::core::policy::Deadline& dl, const std::string& indent = "  ")
+// Deadline 정책을 XML로 변환 (압축)
+static std::string deadline_to_xml(const dds::core::policy::Deadline& dl)
 {
-    std::string xml = indent + "<deadline>\n";
-    xml += indent + "  <period>\n";
-    xml += duration_to_xml(dl.period(), indent + "    ") + "\n";
-    xml += indent + "  </period>\n";
-    xml += indent + "</deadline>";
-    return xml;
+    return "<deadline><period>" + duration_to_xml(dl.period()) + "</period></deadline>";
 }
 
-// LatencyBudget 정책을 XML로 변환
-static std::string latency_budget_to_xml(const dds::core::policy::LatencyBudget& lb, const std::string& indent = "  ")
+// LatencyBudget 정책을 XML로 변환 (압축)
+static std::string latency_budget_to_xml(const dds::core::policy::LatencyBudget& lb)
 {
-    std::string xml = indent + "<latency_budget>\n";
-    xml += indent + "  <duration>\n";
-    xml += duration_to_xml(lb.duration(), indent + "    ") + "\n";
-    xml += indent + "  </duration>\n";
-    xml += indent + "</latency_budget>";
-    return xml;
+    return "<latency_budget><duration>" + duration_to_xml(lb.duration()) + "</duration></latency_budget>";
 }
 
-// Liveliness 정책을 XML로 변환
-static std::string liveliness_to_xml(const dds::core::policy::Liveliness& lv, const std::string& indent = "  ")
+// Liveliness 정책을 XML로 변환 (압축)
+static std::string liveliness_to_xml(const dds::core::policy::Liveliness& lv)
 {
     auto kind_to_str = [](dds::core::policy::LivelinessKind k) -> std::string {
         using K = dds::core::policy::LivelinessKind;
@@ -249,146 +236,135 @@ static std::string liveliness_to_xml(const dds::core::policy::Liveliness& lv, co
         return "AUTOMATIC";
     };
     
-    std::string xml = indent + "<liveliness>\n";
-    xml += indent + "  <kind>" + kind_to_str(lv.kind()) + "_LIVELINESS_QOS</kind>\n";
-    xml += indent + "  <lease_duration>\n";
-    xml += duration_to_xml(lv.lease_duration(), indent + "    ") + "\n";
-    xml += indent + "  </lease_duration>\n";
-    xml += indent + "</liveliness>";
-    return xml;
+    return "<liveliness><kind>" + kind_to_str(lv.kind()) + "_LIVELINESS_QOS</kind>"
+           "<lease_duration>" + duration_to_xml(lv.lease_duration()) + "</lease_duration>"
+           "</liveliness>";
 }
 
-// Ownership 정책을 XML로 변환
-static std::string ownership_to_xml(const dds::core::policy::Ownership& own, const std::string& indent = "  ")
+// Ownership 정책을 XML로 변환 (압축)
+static std::string ownership_to_xml(const dds::core::policy::Ownership& own)
 {
-    return indent + "<ownership>\n" + 
-           indent + "  <kind>" + std::string(to_str(own.kind())) + "_OWNERSHIP_QOS</kind>\n" + 
-           indent + "</ownership>";
+    return "<ownership><kind>" + std::string(to_str(own.kind())) + "_OWNERSHIP_QOS</kind></ownership>";
 }
 
-// OwnershipStrength 정책을 XML로 변환 (DataWriter만 해당)
-static std::string ownership_strength_to_xml(const dds::core::policy::OwnershipStrength& os, const std::string& indent = "  ")
+// OwnershipStrength 정책을 XML로 변환 (압축, DataWriter만 해당)
+static std::string ownership_strength_to_xml(const dds::core::policy::OwnershipStrength& os)
 {
-    return indent + "<ownership_strength>\n" + 
-           indent + "  <value>" + std::to_string(os.value()) + "</value>\n" + 
-           indent + "</ownership_strength>";
+    return "<ownership_strength><value>" + std::to_string(os.value()) + "</value></ownership_strength>";
 }
 
-// TransportPriority 정책을 XML로 변환 (DataWriter만 해당)
-static std::string transport_priority_to_xml(int32_t value, const std::string& indent = "  ")
+// TransportPriority 정책을 XML로 변환 (압축, DataWriter만 해당)
+static std::string transport_priority_to_xml(int32_t value)
 {
     if (value == 0) return "";  // 기본값이면 생략
-    return indent + "<transport_priority>\n" + 
-           indent + "  <value>" + std::to_string(value) + "</value>\n" + 
-           indent + "</transport_priority>";
+    return "<transport_priority><value>" + std::to_string(value) + "</value></transport_priority>";
 }
 
-// DataWriter QoS를 XML로 변환
+// DataWriter QoS를 XML로 변환 (압축)
 static std::string datawriter_qos_to_xml(const dds::pub::qos::DataWriterQos& w)
 {
-    std::string xml = "  <datawriter_qos>\n";
+    std::string xml = "<datawriter_qos>";
     
     try {
-        xml += reliability_to_xml(w.policy<dds::core::policy::Reliability>(), "    ") + "\n";
-        xml += history_to_xml(w.policy<dds::core::policy::History>(), "    ") + "\n";
-        xml += resource_limits_to_xml(w.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        xml += reliability_to_xml(w.policy<dds::core::policy::Reliability>());
+        xml += history_to_xml(w.policy<dds::core::policy::History>());
+        xml += resource_limits_to_xml(w.policy<dds::core::policy::ResourceLimits>());
         
         const auto& dl = w.policy<dds::core::policy::Deadline>();
         if (dl.period() != dds::core::Duration::infinite()) {
-            xml += deadline_to_xml(dl, "    ") + "\n";
+            xml += deadline_to_xml(dl);
         }
         
         const auto& lb = w.policy<dds::core::policy::LatencyBudget>();
         if (lb.duration() != dds::core::Duration::zero()) {
-            xml += latency_budget_to_xml(lb, "    ") + "\n";
+            xml += latency_budget_to_xml(lb);
         }
         
-        xml += liveliness_to_xml(w.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
-        xml += ownership_to_xml(w.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        xml += liveliness_to_xml(w.policy<dds::core::policy::Liveliness>());
+        xml += ownership_to_xml(w.policy<dds::core::policy::Ownership>());
         
         const auto& os = w.policy<dds::core::policy::OwnershipStrength>();
         if (os.value() != 0) {
-            xml += ownership_strength_to_xml(os, "    ") + "\n";
+            xml += ownership_strength_to_xml(os);
         }
         
         // TransportPriority
         try {
             const auto& tp = w.policy<dds::core::policy::TransportPriority>();
-            auto tp_xml = transport_priority_to_xml(tp.value(), "    ");
-            if (!tp_xml.empty()) xml += tp_xml + "\n";
+            xml += transport_priority_to_xml(tp.value());
         } catch (...) {}
         
     } catch (const std::exception& e) {
         LOG_WRN("DDS", "datawriter_qos_to_xml failed: %s", e.what());
     }
     
-    xml += "  </datawriter_qos>";
+    xml += "</datawriter_qos>";
     return xml;
 }
 
-// DataReader QoS를 XML로 변환
+// DataReader QoS를 XML로 변환 (압축)
 static std::string datareader_qos_to_xml(const dds::sub::qos::DataReaderQos& r)
 {
-    std::string xml = "  <datareader_qos>\n";
+    std::string xml = "<datareader_qos>";
     
     try {
-        xml += reliability_to_xml(r.policy<dds::core::policy::Reliability>(), "    ") + "\n";
-        xml += history_to_xml(r.policy<dds::core::policy::History>(), "    ") + "\n";
-        xml += resource_limits_to_xml(r.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        xml += reliability_to_xml(r.policy<dds::core::policy::Reliability>());
+        xml += history_to_xml(r.policy<dds::core::policy::History>());
+        xml += resource_limits_to_xml(r.policy<dds::core::policy::ResourceLimits>());
         
         const auto& dl = r.policy<dds::core::policy::Deadline>();
         if (dl.period() != dds::core::Duration::infinite()) {
-            xml += deadline_to_xml(dl, "    ") + "\n";
+            xml += deadline_to_xml(dl);
         }
         
         const auto& lb = r.policy<dds::core::policy::LatencyBudget>();
         if (lb.duration() != dds::core::Duration::zero()) {
-            xml += latency_budget_to_xml(lb, "    ") + "\n";
+            xml += latency_budget_to_xml(lb);
         }
         
-        xml += liveliness_to_xml(r.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
-        xml += ownership_to_xml(r.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        xml += liveliness_to_xml(r.policy<dds::core::policy::Liveliness>());
+        xml += ownership_to_xml(r.policy<dds::core::policy::Ownership>());
         
     } catch (const std::exception& e) {
         LOG_WRN("DDS", "datareader_qos_to_xml failed: %s", e.what());
     }
     
-    xml += "  </datareader_qos>";
+    xml += "</datareader_qos>";
     return xml;
 }
 
-// Topic QoS를 XML로 변환
+// Topic QoS를 XML로 변환 (압축)
 static std::string topic_qos_to_xml(const dds::topic::qos::TopicQos& t)
 {
-    std::string xml = "  <topic_qos>\n";
+    std::string xml = "<topic_qos>";
     
     try {
-        xml += durability_to_xml(t.policy<dds::core::policy::Durability>(), "    ") + "\n";
-        xml += history_to_xml(t.policy<dds::core::policy::History>(), "    ") + "\n";
-        xml += resource_limits_to_xml(t.policy<dds::core::policy::ResourceLimits>(), "    ") + "\n";
+        xml += durability_to_xml(t.policy<dds::core::policy::Durability>());
+        xml += history_to_xml(t.policy<dds::core::policy::History>());
+        xml += resource_limits_to_xml(t.policy<dds::core::policy::ResourceLimits>());
         
         const auto& dl = t.policy<dds::core::policy::Deadline>();
         if (dl.period() != dds::core::Duration::infinite()) {
-            xml += deadline_to_xml(dl, "    ") + "\n";
+            xml += deadline_to_xml(dl);
         }
         
         const auto& lb = t.policy<dds::core::policy::LatencyBudget>();
         if (lb.duration() != dds::core::Duration::zero()) {
-            xml += latency_budget_to_xml(lb, "    ") + "\n";
+            xml += latency_budget_to_xml(lb);
         }
         
-        xml += liveliness_to_xml(t.policy<dds::core::policy::Liveliness>(), "    ") + "\n";
-        xml += ownership_to_xml(t.policy<dds::core::policy::Ownership>(), "    ") + "\n";
+        xml += liveliness_to_xml(t.policy<dds::core::policy::Liveliness>());
+        xml += ownership_to_xml(t.policy<dds::core::policy::Ownership>());
         
     } catch (const std::exception& e) {
         LOG_WRN("DDS", "topic_qos_to_xml failed: %s", e.what());
     }
     
-    xml += "  </topic_qos>";
+    xml += "</topic_qos>";
     return xml;
 }
 
-// QosPack을 완전한 qos_profile XML로 변환
+// QosPack을 완전한 qos_profile XML로 변환 (압축)
 static std::string qos_pack_to_profile_xml(const std::string& profile_name,
                                            const dds::pub::qos::DataWriterQos& w,
                                            const dds::sub::qos::DataReaderQos& r,
@@ -399,11 +375,11 @@ static std::string qos_pack_to_profile_xml(const std::string& profile_name,
     if (!base_name.empty()) {
         xml += " base_name=\"" + base_name + "\"";
     }
-    xml += ">\n";
+    xml += ">";
     
-    xml += datawriter_qos_to_xml(w) + "\n";
-    xml += datareader_qos_to_xml(r) + "\n";
-    xml += topic_qos_to_xml(t) + "\n";
+    xml += datawriter_qos_to_xml(w);
+    xml += datareader_qos_to_xml(r);
+    xml += topic_qos_to_xml(t);
     
     xml += "</qos_profile>";
     return xml;
@@ -570,6 +546,7 @@ void QosStore::initialize()
                 LOG_DBG("DDS", "[qos-profile] none found in %s", pe.path.c_str());
             }
         }
+
         // cache builtin candidate names once for consistency and to avoid repeated helper calls
         try {
             builtin_candidates_ = collect_builtin_qos_lib_names();
@@ -738,11 +715,11 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
         if (auto itc = cache_.find(k); itc != cache_.end()) return itc->second;
         if (auto pack = resolve_from_providers(lib, profile)) {
             cache_[k] = *pack;
-            // log source xml
+            // log source xml (압축 형식)
             auto xml = extract_profile_xml(pack->origin_file, lib, profile);
             if (!xml.empty()) {
                 LOG_INF("DDS", "[qos-load] %s::%s from=%s\n%s", lib.c_str(), profile.c_str(), pack->origin_file.c_str(),
-                        xml.c_str());
+                        compress_xml(xml).c_str());
             } else {
                 LOG_WRN("DDS", "[qos-load] profile xml not found for %s::%s (file=%s)", lib.c_str(), profile.c_str(),
                         pack->origin_file.c_str());
@@ -763,7 +740,7 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
             auto xml = extract_profile_xml(pack->origin_file, lib, profile);
             if (!xml.empty()) {
                 LOG_INF("DDS", "[qos-reload] %s::%s from=%s\n%s", lib.c_str(), profile.c_str(),
-                        pack->origin_file.c_str(), xml.c_str());
+                        pack->origin_file.c_str(), compress_xml(xml).c_str());
             }
             return pack;
         }
@@ -780,6 +757,73 @@ void QosStore::reload_all()
     cache_version_++;
     LOG_INF("DDS", "[qos-reload-all] dir=%s providers=%zu version=%llu", dir_.c_str(), providers_.size(),
             (unsigned long long)cache_version_);
+}
+
+// Helper: XML 문자열 압축 (개행, 탭, 불필요한 공백 제거)
+static std::string compress_xml(const std::string& xml)
+{
+    if (xml.empty()) return xml;
+    
+    std::string result;
+    result.reserve(xml.size());
+    
+    bool in_tag = false;
+    bool in_content = false;
+    bool prev_was_space = false;
+    
+    for (size_t i = 0; i < xml.size(); ++i) {
+        char c = xml[i];
+        
+        // 개행, 탭 무시
+        if (c == '\n' || c == '\r' || c == '\t') {
+            continue;
+        }
+        
+        // 태그 시작/종료 추적
+        if (c == '<') {
+            in_tag = true;
+            in_content = false;
+            prev_was_space = false;
+            result += c;
+            continue;
+        }
+        
+        if (c == '>') {
+            in_tag = false;
+            in_content = true;
+            prev_was_space = false;
+            result += c;
+            continue;
+        }
+        
+        // 태그 내부는 공백 제거 (단, 속성 사이 공백 하나는 유지)
+        if (in_tag) {
+            if (c == ' ') {
+                if (!prev_was_space) {
+                    result += c;
+                    prev_was_space = true;
+                }
+            } else {
+                result += c;
+                prev_was_space = false;
+            }
+            continue;
+        }
+        
+        // 컨텐츠 영역 (태그 사이 공백은 모두 제거)
+        if (in_content) {
+            if (c == ' ') {
+                continue;  // 태그 사이 공백 무시
+            }
+            result += c;
+            continue;
+        }
+        
+        // 기본: 그대로 추가
+        result += c;
+    }
+    
+    return result;
 }
 
 // Helper: XML 콘텐츠에서 특정 library::profile 추출 (파일이 아닌 문자열에서)
@@ -915,13 +959,13 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
                 }
                 obj["source_kind"] = "dynamic";
                 
-                // 동적 프로파일의 경우 저장된 XML 사용 (가능하면)
+                // 동적 프로파일의 경우 저장된 XML 사용 (가능하면) 후 압축
                 auto lib_xml_it = dynamic_libraries_.find(lib_name);
                 if (lib_xml_it != dynamic_libraries_.end()) {
                     std::string profile_name = full_name.substr(lib_name.size() + 2);  // "lib::" 제거
                     auto stored_xml = extract_profile_xml_from_content(lib_xml_it->second, lib_name, profile_name);
                     if (!stored_xml.empty()) {
-                        obj["xml"] = stored_xml;
+                        obj["xml"] = compress_xml(stored_xml);
                     }
                 }
                 
@@ -930,7 +974,7 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
         }
     }
 
-    // 2) 외부 파일 기반: "통합된 값"만 (effective) + source_kind + 원본 XML
+    // 2) 외부 파일 기반: "통합된 값"만 (effective) + source_kind + 압축된 XML
     for (auto it = providers_.rbegin(); it != providers_.rend(); ++it) {  // 마지막 로드 우선
         auto pairs = parse_profiles_from_file(it->path);
         for (const auto& lp : pairs) {
@@ -944,10 +988,10 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
             }
             obj["source_kind"] = "external";
 
-            // 원본 파일에서 XML 추출 (있으면 덮어씀)
+            // 원본 파일에서 XML 추출 후 압축 (개행 제거)
             auto file_xml = extract_profile_xml(it->path, lp.first, lp.second);
             if (!file_xml.empty()) {
-                obj["xml"] = file_xml;
+                obj["xml"] = compress_xml(file_xml);
             }
 
             // 마지막 로드 우선 정책: 동적 프로파일이 아닌 경우에만 덮어씀

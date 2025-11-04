@@ -33,17 +33,6 @@ int main(int argc, char** argv)
 
     GatewayApp app;
     
-    // TEST_CODE: always simulate a single get.qos request at startup and log the result
-    try {
-        DdsManager mgr("qos");
-        auto out = mgr.list_qos_profiles(false, true);
-        LOG_INF("SelfTest", "[TEST_CODE] simulated get.qos result:\n%s", out.dump(2).c_str());
-        std::cout << out.dump(2) << std::endl;
-    } catch (const std::exception& ex) {
-        LOG_ERR("SelfTest", "[TEST_CODE] exception during simulated get.qos: %s", ex.what());
-        std::cerr << "simulated get.qos exception: " << ex.what() << std::endl;
-    }
-
     bool ok = (mode == "server") ? app.start_server(addr, port) : app.start_client(addr, port);
 
     if (!ok) {

@@ -143,7 +143,7 @@
   - detail: array, 선택 — 프로파일 상세(요청 시에만 포함)
     - 각 항목: { "Lib::Profile": { source_kind, xml, [discovery], [runtime] } }
     - source_kind: "dynamic" | "external" | "builtin" (필수)
-    - xml: `<qos_profile>...</qos_profile>` 전체 XML 문자열 (필수, 주요 10개 정책 포함, set.qos에서 그대로 재사용 가능)
+    - xml: `<qos_profile>...</qos_profile>` 전체 XML 문자열 (필수, 압축 형식 - 개행 없음, 주요 10개 정책 포함, set.qos에서 그대로 재사용 가능)
     - discovery: 발견/매칭 관련 QoS 요약 (선택, 현재 비활성화)
     - runtime: 런타임 동작 관련 QoS 요약 (선택, 현재 비활성화)
 
@@ -153,7 +153,7 @@
 { "op": "get", "target": { "kind": "qos" }, "args": { "include_builtin": true, "detail": true } }
 ```
 
-응답 (detail 포함)
+응답 (detail 포함 - XML은 압축 형식)
 
 ```json
 {
@@ -166,7 +166,7 @@
     {
       "NGVA_QoS_Library::control_low_latency_reliable": {
         "source_kind": "external",
-        "xml": "<qos_profile name=\"control_low_latency_reliable\" base_name=\"NetLib::BaseUdpOnly\">\n  <datawriter_qos>\n    <reliability>\n      <kind>RELIABLE_RELIABILITY_QOS</kind>\n    </reliability>\n    <history>\n      <kind>KEEP_LAST_HISTORY_QOS</kind>\n      <depth>1</depth>\n    </history>\n    <resource_limits>\n      <max_samples>32</max_samples>\n      <max_instances>1</max_instances>\n      <max_samples_per_instance>32</max_samples_per_instance>\n    </resource_limits>\n    <deadline>\n      <period>\n        <sec>0</sec>\n        <nanosec>100000000</nanosec>\n      </period>\n    </deadline>\n    <latency_budget>\n      <duration>\n        <sec>0</sec>\n        <nanosec>3000000</nanosec>\n      </duration>\n    </latency_budget>\n    <liveliness>\n      <kind>AUTOMATIC_LIVELINESS_QOS</kind>\n      <lease_duration>\n        <sec>DURATION_INFINITE_SEC</sec>\n        <nanosec>DURATION_INFINITE_NSEC</nanosec>\n      </lease_duration>\n    </liveliness>\n    <ownership>\n      <kind>EXCLUSIVE_OWNERSHIP_QOS</kind>\n    </ownership>\n    <ownership_strength>\n      <value>0</value>\n    </ownership_strength>\n    <transport_priority>\n      <value>100</value>\n    </transport_priority>\n  </datawriter_qos>\n  <datareader_qos>\n    ...\n  </datareader_qos>\n  <topic_qos>\n    ...\n  </topic_qos>\n</qos_profile>"
+        "xml": "<qos_profile name=\"control_low_latency_reliable\" base_name=\"NetLib::BaseUdpOnly\"><datawriter_qos><reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability><history><kind>KEEP_LAST_HISTORY_QOS</kind><depth>1</depth></history><resource_limits><max_samples>32</max_samples><max_instances>1</max_instances><max_samples_per_instance>32</max_samples_per_instance></resource_limits><deadline><period><sec>0</sec><nanosec>100000000</nanosec></period></deadline><latency_budget><duration><sec>0</sec><nanosec>3000000</nanosec></duration></latency_budget><liveliness><kind>AUTOMATIC_LIVELINESS_QOS</kind><lease_duration><sec>DURATION_INFINITE_SEC</sec><nanosec>DURATION_INFINITE_NSEC</nanosec></lease_duration></liveliness><ownership><kind>EXCLUSIVE_OWNERSHIP_QOS</kind></ownership><ownership_strength><value>0</value></ownership_strength><transport_priority><value>100</value></transport_priority></datawriter_qos><datareader_qos>...</datareader_qos><topic_qos>...</topic_qos></qos_profile>"
       }
     },
     {
@@ -230,10 +230,13 @@
 
 **중요**:
 
-- `detail[].xml` 필드의 XML은 `set.qos`의 `data.xml` 필드에 그대로 전달할 수 있습니다.
-- UI는 이를 통해 기존 프로파일을 수정하거나 복제할 수 있습니다.
-- XML에는 주요 10개 QoS 정책(reliability, durability, ownership, history, resource_limits, deadline, latency_budget, liveliness, ownership_strength, transport_priority)이 포함됩니다.
-- discovery/runtime 필드는 현재 비활성화되어 있으며, 필요 시 코드 주석 해제로 활성화 가능합니다.
+- `detail[].xml` 필드의 XML은 압축 형식(개행 없음)으로 전달됩니다
+- `\n`, `\t` 등의 이스케이프 문자가 없어 JSON 내부에서 깔끔하게 표시됩니다
+- `\"` 이스케이프는 JSON 표준상 불가피합니다 (문자열 내부의 따옴표 처리)
+- XML은 `set.qos`의 `data.xml` 필드에 그대로 전달 가능합니다
+- UI는 이를 통해 기존 프로파일을 수정하거나 복제할 수 있습니다
+- XML에는 주요 10개 QoS 정책(reliability, durability, ownership, history, resource_limits, deadline, latency_budget, liveliness, ownership_strength, transport_priority)이 포함됩니다
+- discovery/runtime 필드는 현재 비활성화되어 있으며, 필요 시 코드 주석 해제로 활성화 가능합니다
 
 ### 4.2.1 set (QoS 동적 추가/업데이트)
 
