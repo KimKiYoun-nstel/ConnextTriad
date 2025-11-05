@@ -47,13 +47,16 @@ std::string extract_profile_xml_from_content(const std::string& content, const s
 /// @return 압축된 XML 문자열 (한 줄 형식)
 std::string compress_xml(const std::string& xml);
 
-/// Profile XML을 Library XML에 병합 (교체 또는 추가)
-/// @param lib_xml 기존 Library XML 문자열
-/// @param profile_name 병합할 Profile 이름
+/// Profile XML을 특정 Library XML에 병합 (교체 또는 추가)
+/// @param lib_xml 기존 Library XML 문자열(파일 전체 또는 단일 라이브러리 블록 포함 가능)
+/// @param library_name 병합 대상 Library 이름
+/// @param profile_name 병합할 Profile 이름 (name 속성은 이 값으로 강제 정규화됨)
 /// @param profile_xml 병합할 Profile XML (qos_profile 태그 포함)
 /// @return 병합된 Library XML (실패 시 빈 문자열)
-std::string merge_profile_into_library(const std::string& lib_xml, const std::string& profile_name,
-                                        const std::string& profile_xml);
+std::string merge_profile_into_library(const std::string& lib_xml,
+                                       const std::string& library_name,
+                                       const std::string& profile_name,
+                                       const std::string& profile_xml);
 
 }  // namespace qos_xml
 }  // namespace rtpdds

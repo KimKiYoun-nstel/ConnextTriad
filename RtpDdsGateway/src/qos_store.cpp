@@ -294,6 +294,15 @@ std::vector<QosStore::ProviderEntry> QosStore::load_providers_from_dir_nothrow(c
             ProviderEntry pe;
             pe.path = f;
             pe.provider = prov;
+            // cache full XML content
+            try {
+                std::ifstream ifs(f);
+                if (ifs) {
+                    pe.xml_content.assign((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+                }
+            } catch (const std::exception& e) {
+                LOG_WRN("DDS", "[qos-file] XML read failed: %s (%s)", f.c_str(), e.what());
+            }
             // parse profiles once and cache
             try {
                 auto pairs = parse_profiles_from_file(f);
@@ -555,8 +564,8 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
                     continue;
                 }
                 obj["source_kind"] = "dynamic";
-                
-                // 동적 프로파일의 경우 저장된 XML 사용 (가능하면) 후 압축
+
+                // 동적 프로파일: 응답 xml은 항상 사용자가 제공/병합된 원본 스니펫 기반으로 반환
                 auto lib_xml_it = dynamic_libraries_.find(lib_name);
                 if (lib_xml_it != dynamic_libraries_.end()) {
                     std::string profile_name = full_name.substr(lib_name.size() + 2);  // "lib::" 제거
@@ -651,16 +660,26 @@ std::string QosStore::add_or_update_profile(const std::string& library,
         if (lib_it != dynamic_libraries_.end()) {
             lib_xml = lib_it->second;
         } else {
-            // 새 Library 템플릿 생성
-            lib_xml = R"(<?xml version="1.0" encoding="UTF-8"?>
+            // 파일 기반 Library XML에서 찾기 (캐시된 xml_content 사용)
+            for (const auto& pe : providers_) {
+                if (pe.xml_content.find("<qos_library name=\"" + library + "\"") != std::string::npos) {
+                    lib_xml = pe.xml_content;
+                    LOG_DBG("DDS", "add_or_update_profile: using cached XML from %s", pe.path.c_str());
+                    break;
+                }
+            }
+            if (lib_xml.empty()) {
+                // 새 Library 템플릿 생성
+                lib_xml = R"(<?xml version="1.0" encoding="UTF-8"?>
 <dds>
   <qos_library name=")" + library + R"(">
   </qos_library>
 </dds>)";
+            }
         }
         
-        // 2. Profile XML 병합 (교체 또는 추가)
-        std::string updated_lib_xml = merge_profile_into_library(lib_xml, profile, profile_xml);
+    // 2. Profile XML 병합 (교체 또는 추가)
+    std::string updated_lib_xml = merge_profile_into_library(lib_xml, library, profile, profile_xml);
         if (updated_lib_xml.empty()) {
             LOG_ERR("DDS", "add_or_update_profile: failed to merge profile into library=%s profile=%s", 
                     library.c_str(), profile.c_str());

@@ -458,7 +458,9 @@ std::string compress_xml(const std::string& xml)
     return result;
 }
 
-std::string merge_profile_into_library(const std::string& lib_xml, const std::string& profile_name,
+std::string merge_profile_into_library(const std::string& lib_xml,
+                                        const std::string& library_name,
+                                        const std::string& profile_name,
                                         const std::string& profile_xml)
 {
     try {
@@ -469,31 +471,100 @@ std::string merge_profile_into_library(const std::string& lib_xml, const std::st
             return "";
         }
 
-        // Library XML 파싱 (</qos_library> 태그 위치 찾기)
-        size_t lib_close_pos = lib_xml.find("</qos_library>");
-        if (lib_close_pos == std::string::npos) {
-            return "";  // 잘못된 Library XML
+        // name 속성을 요청된 profile_name으로 강제 변경 (없으면 추가)
+        {
+            // opening tag 범위 추출
+            auto prof_tag_pos = normalized_profile.find("<qos_profile");
+            auto prof_tag_end = normalized_profile.find('>', prof_tag_pos);
+            if (prof_tag_pos == std::string::npos || prof_tag_end == std::string::npos) return "";
+            std::string opening = normalized_profile.substr(prof_tag_pos, prof_tag_end - prof_tag_pos + 1);
+
+            // name= 존재 여부 확인
+            auto npos = opening.find("name=");
+            if (npos != std::string::npos) {
+                // 값 영역 교체
+                size_t quote = opening.find_first_of("\"'", npos + 5);
+                if (quote != std::string::npos) {
+                    char q = opening[quote];
+                    size_t qend = opening.find(q, quote + 1);
+                    if (qend != std::string::npos) {
+                        std::string before = normalized_profile.substr(0, prof_tag_pos);
+                        std::string after = normalized_profile.substr(prof_tag_end + 1);
+                        std::string new_opening = opening.substr(0, quote + 1) + profile_name + opening.substr(qend);
+                        normalized_profile = before + new_opening + after;
+                    }
+                }
+            } else {
+                // name 속성 추가: <qos_profile 뒤에 name="..." 삽입
+                std::string before = normalized_profile.substr(0, prof_tag_pos + std::strlen("<qos_profile"));
+                std::string after = normalized_profile.substr(prof_tag_pos + std::strlen("<qos_profile"));
+                normalized_profile = before + " name=\"" + profile_name + "\"" + after;
+            }
         }
 
-        // 기존 Library 내에서 동일한 profile_name을 가진 qos_profile 찾기
-        std::string lib_opening = lib_xml.substr(0, lib_close_pos);
+        // Library XML 파싱: 정확한 <qos_library name="..."> 블록을 찾아 그 내부에서 교체/삽입 수행
+        const std::string lib_tag = "<qos_library";
+        size_t search_lib_pos = 0;
+        size_t lib_block_start = std::string::npos;
+        size_t lib_block_end = std::string::npos;
 
-        // Profile 검색 패턴: <qos_profile name="profile_name"
+        while (true) {
+            auto lib_pos = lib_xml.find(lib_tag, search_lib_pos);
+            if (lib_pos == std::string::npos) break;
+            auto lib_tag_end = lib_xml.find('>', lib_pos);
+            if (lib_tag_end == std::string::npos) break;
+            std::string opening = lib_xml.substr(lib_pos, lib_tag_end - lib_pos + 1);
+            // extract library name
+            std::string lib_name;
+            auto npos = opening.find("name=");
+            if (npos != std::string::npos) {
+                size_t quote = opening.find_first_of("\"'", npos + 5);
+                if (quote != std::string::npos) {
+                    char q = opening[quote];
+                    size_t qend = opening.find(q, quote + 1);
+                    if (qend != std::string::npos) {
+                        lib_name = opening.substr(quote + 1, qend - (quote + 1));
+                    }
+                }
+            }
+            if (lib_name.empty() || lib_name != library_name) {
+                search_lib_pos = lib_tag_end + 1;
+                continue; // 원하는 라이브러리 아니면 다음으로
+            }
+
+            // 해당 라이브러리의 닫는 태그 찾기
+            auto lib_close = lib_xml.find("</qos_library>", lib_tag_end);
+            if (lib_close == std::string::npos) {
+                search_lib_pos = lib_tag_end + 1;
+                continue;
+            }
+
+            // 정확히 일치하는 라이브러리 블록 범위 결정
+            lib_block_start = lib_tag_end + 1;
+            lib_block_end = lib_close;
+            break;
+        }
+
+        if (lib_block_start == std::string::npos || lib_block_end == std::string::npos) {
+            return ""; // invalid structure
+        }
+
+        std::string lib_block = lib_xml.substr(lib_block_start, lib_block_end - lib_block_start);
+
+        // Profile 검색: lib_block 범위내에서 동일한 profile_name을 가진 qos_profile 찾기
         std::string search_pattern = "<qos_profile";
         size_t search_pos = 0;
         size_t found_prof_start = std::string::npos;
         size_t found_prof_end = std::string::npos;
 
         while (true) {
-            size_t prof_pos = lib_opening.find(search_pattern, search_pos);
+            size_t prof_pos = lib_block.find(search_pattern, search_pos);
             if (prof_pos == std::string::npos) break;
 
-            // 태그 끝 찾기
-            size_t tag_end = lib_opening.find('>', prof_pos);
+            size_t tag_end = lib_block.find('>', prof_pos);
             if (tag_end == std::string::npos) break;
 
-            std::string opening_tag = lib_opening.substr(prof_pos, tag_end - prof_pos + 1);
-
+            std::string opening_tag = lib_block.substr(prof_pos, tag_end - prof_pos + 1);
             // name 속성 추출
             std::string extracted_name;
             auto name_pos = opening_tag.find("name=");
@@ -508,11 +579,9 @@ std::string merge_profile_into_library(const std::string& lib_xml, const std::st
                 }
             }
 
-            // 일치하는 Profile 발견
             if (extracted_name == profile_name) {
                 found_prof_start = prof_pos;
-                // </qos_profile> 찾기
-                size_t prof_close = lib_opening.find("</qos_profile>", tag_end);
+                size_t prof_close = lib_block.find("</qos_profile>", tag_end);
                 if (prof_close != std::string::npos) {
                     found_prof_end = prof_close + std::strlen("</qos_profile>");
                 }
@@ -524,12 +593,14 @@ std::string merge_profile_into_library(const std::string& lib_xml, const std::st
 
         std::string result;
         if (found_prof_start != std::string::npos && found_prof_end != std::string::npos) {
-            // 기존 Profile 교체
-            result = lib_xml.substr(0, found_prof_start) + "  " + normalized_profile + "\n" +
-                     lib_xml.substr(found_prof_end);
+            // 기존 Profile 교체: lib_xml 전체를 결합해서 교체 위치 계산
+            size_t abs_start = lib_block_start + found_prof_start;
+            size_t abs_end = lib_block_start + found_prof_end;
+            result = lib_xml.substr(0, abs_start) + "  " + normalized_profile + "\n" + lib_xml.substr(abs_end);
         } else {
-            // 새 Profile 추가 (</qos_library> 직전에 삽입)
-            result = lib_xml.substr(0, lib_close_pos) + "  " + normalized_profile + "\n" + lib_xml.substr(lib_close_pos);
+            // 새 Profile 추가 (해당 라이브러리 블록 끝에 삽입)
+            size_t abs_insert = lib_block_end; // 위치는 </qos_library> 바로 앞
+            result = lib_xml.substr(0, abs_insert) + "  " + normalized_profile + "\n" + lib_xml.substr(abs_insert);
         }
 
         return result;

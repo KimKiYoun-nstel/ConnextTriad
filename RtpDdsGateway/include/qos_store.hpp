@@ -60,6 +60,8 @@ private:
         std::unordered_set<std::string> profiles;
         // last observed file modification time to avoid unnecessary reparsing
         std::filesystem::file_time_type mtime{};
+        // cached full XML content for dynamic profile merging
+        std::string xml_content;
     };
 
     std::vector<ProviderEntry> load_providers_from_dir_nothrow(const std::string& dir);
