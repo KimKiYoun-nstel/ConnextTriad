@@ -27,31 +27,12 @@ class DkmRtpIpc {
           public:
             using ByteVec = std::vector<uint8_t>;
             struct Callbacks {
-                std::function<void(const Header &,
-                                   const CmdParticipantCreate &)>
-                    on_cmd_participant_create;
-                std::function<void(const Header &, const CmdPublisherCreate &)>
-                    on_cmd_publisher_create;
-                std::function<void(const Header &, const CmdSubscriberCreate &)>
-                    on_cmd_subscriber_create;
-                std::function<void(const Header &, const CmdPublishSample &,
-                                   const uint8_t *body)>
-                    on_cmd_publish_sample;
-                std::function<void(const Header &, const uint8_t *body)>
-                    on_evt_data;
-                std::function<void(const Header &)> on_ack;
-                std::function<void(const Header &, const RspError &,
-                                   const char *msg)>
-                    on_error;
-
-                /// 새로운 통합 프레임 수신 콜백(REQ/RSP/EVT) - 페이로드는
-                /// 상위에서 CBOR/JSON 해석
+                // REQ/RSP/EVT 메시지만 지원. 페이로드는 CBOR/JSON 해석
                 std::function<void(const Header &, const uint8_t *payload, uint32_t len)> on_request;
                 std::function<void(const Header &, const uint8_t *payload, uint32_t len)> on_response;
                 std::function<void(const Header &, const uint8_t *payload, uint32_t len)> on_event;
-                /// 미처리 타입 수신 시 호출
+                // 미처리 타입 수신 시 호출
                 std::function<void(const Header &)> on_unhandled;
-
             };
             DkmRtpIpc();
             ~DkmRtpIpc();

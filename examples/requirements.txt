@@ -1,0 +1,22 @@
+# Requirements for examples/ipc_cbor_example.py
+#
+# 이 파일은 예제 스크립트에서 사용하는 패키지 목록입니다.
+# 로컬에서 실행하려면 가상환경을 만드는 것을 권장합니다.
+# 아래는 PowerShell(Windows)에서의 예시 절차입니다.
+# (레포지토리 루트에서 실행하거나, 경로을 적절히 조정하세요)
+#
+# python -m venv .venv
+# .\.venv\Scripts\Activate.ps1
+# python -m pip install --upgrade pip
+# python -m pip install -r .\examples\requirements.txt
+# python .\examples\ipc_cbor_example.py
+#
+# 또는 examples 디렉터리로 이동 후 실행:
+# cd .\examples
+# python -m venv .venv
+# .\.venv\Scripts\Activate.ps1
+# python -m pip install -r requirements.txt
+# python ipc_cbor_example.py
+
+cbor2>=5.4.0
+jsonschema>=4.0.0

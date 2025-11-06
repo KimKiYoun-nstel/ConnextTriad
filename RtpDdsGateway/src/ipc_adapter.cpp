@@ -1,211 +1,633 @@
-﻿/**
+/**
  * @file ipc_adapter.cpp
- * ### 파일 설명(한글)
- * IpcAdapter 구현 파일.
- * * UI에서 들어오는 명령을 받아 DdsManager API 호출 → 결과를 ACK/ERR로 응답.
- * * DdsManager에서 수신한 샘플은 EVT_DATA로 UI에 전송.
-
+ * @brief IpcAdapter 구현 파일
+ *
+ * UI에서 들어오는 명령을 받아 DdsManager API 호출 → 결과를 ACK/ERR로 응답.
+ * DdsManager에서 수신한 샘플은 EVT_DATA로 UI에 전송.
+ * 각 함수별로 파라미터/리턴/비즈니스 처리에 대한 상세 주석을 추가.
  */
 #include "ipc_adapter.hpp"
+
 #include "dds_manager.hpp"
 #include "triad_log.hpp"
-#include "nlohmann/json.hpp"
+#include "sample_factory.hpp"
 
 
-namespace rtpdds {
-    IpcAdapter::IpcAdapter(DdsManager &mgr) : mgr_(mgr) {
-        install_callbacks();
+#include "type_registry.hpp"
+#include <nlohmann/json.hpp>
+#include <any>
+#include <vector>
+
+namespace rtpdds
+{
+
+/**
+ * @brief DdsManager 참조로 어댑터 생성, 콜백 설치
+ * @param mgr DDS 엔티티/샘플 관리 참조
+ */
+IpcAdapter::IpcAdapter(DdsManager& mgr) : mgr_(mgr)
+{
+    install_callbacks();
+}
+
+/**
+ * @brief 자원 해제 및 종료
+ */
+IpcAdapter::~IpcAdapter()
+{
+    stop();
+}
+
+/**
+ * @brief 서버 모드 시작
+ * @param bind_addr 바인드 주소
+ * @param port 바인드 포트
+ * @return 서버 시작 성공 여부
+ */
+bool IpcAdapter::start_server(const std::string& bind_addr, uint16_t port)
+{
+    return ipc_.start(dkmrtp::ipc::Role::Server, {bind_addr, port});
+}
+
+/**
+ * @brief 클라이언트 모드 시작
+ * @param peer_addr 접속할 서버 주소
+ * @param port 접속할 서버 포트
+ * @return 클라이언트 시작 성공 여부
+ */
+bool IpcAdapter::start_client(const std::string& peer_addr, uint16_t port)
+{
+    return ipc_.start(dkmrtp::ipc::Role::Client, {peer_addr, port});
+}
+
+/**
+ * @brief 종료 및 콜백 해제
+ */
+void IpcAdapter::stop()
+{
+    ipc_.stop();
+}
+
+/**
+ * @brief 내부 콜백 설치 (IPC 요청/응답/이벤트 처리)
+ *
+ * - on_request: UI에서 들어오는 JSON 기반 RPC 명령을 파싱하여 DdsManager API 호출, 결과를 CBOR로 응답
+ * - set_on_sample: DDS 샘플 수신 시 EVT 프레임으로 UI에 전송
+ */
+void IpcAdapter::install_callbacks()
+{
+    dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
+    // on_cmd_XX 관련 콜백 제거됨. REQ/RSP/EVT 구조만 남김.
+
+    // === Unified RPC Envelope (CBOR over IPC) ===
+    cb.on_request = [this](const dkmrtp::ipc::Header& h, const uint8_t* body, uint32_t len) {
+        // 수신만 처리: 이벤트로 변환하여 post 콜백으로 전달
+        LOG_DBG("IPC", "on_request corr_id=%u size=%u", h.corr_id, len);
+
+        // Try to decode CBOR for flow logging (non-fatal)
+        try {
+            nlohmann::json j = nlohmann::json::from_cbor(body, body + len);
+            // IN flow log (yellow)
+            LOG_WRN("FLOW", "IN corr_id=%u msg=%s", h.corr_id, j.dump().c_str());
+        } catch (...) {
+            LOG_WRN("FLOW", "IN corr_id=%u msg=<non-json/cbor payload size=%u>", h.corr_id, len);
+        }
+
+        async::CommandEvent ev;
+        ev.corr_id = h.corr_id;
+        ev.route = "ipc";
+        ev.body.assign(body, body + len);
+        ev.is_cbor = true;
+
+        if (!post_cmd_) {
+            LOG_WRN("IPC", "command post is null, replying error corr_id=%u", h.corr_id);
+            nlohmann::json rsp = {{"ok", false}, {"err", 7}, {"msg", "no command sink"}};
+            auto out = nlohmann::json::to_cbor(rsp);
+            // OUT flow log for error response
+            LOG_WRN("FLOW", "OUT corr_id=%u rsp=%s", h.corr_id, rsp.dump().c_str());
+            ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, h.corr_id, out.data(), (uint32_t)out.size());
+            return;
+        }
+        post_cmd_(ev);
+    };
+
+    // NOTE: mgr_.set_on_sample is intentionally NOT installed here anymore.
+    // Gateway owns an AsyncEventProcessor and will post SampleEvent into it. The
+    // async consumer will call IpcAdapter::emit_evt_from_sample to perform the
+    // JSON->CBOR conversion and send the IPC frame. This keeps the DDS listener
+    // callback lightweight and non-blocking.
+
+    ipc_.set_callbacks(cb);
+}
+
+// 이동된: emit_evt_from_sample 구현
+void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
+{
+    const std::string& topic = ev.topic;
+    const std::string& type_name = ev.type_name;
+    const AnyData& data = ev.data;
+
+    LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
+
+    nlohmann::json data_json;
+
+    const void* sample_ptr = nullptr;
+    try {
+        auto sp = std::any_cast<std::shared_ptr<void> >(data);
+        sample_ptr = sp.get();
+        if (!sample_ptr) {
+            LOG_ERR("IPC", "AnyData contains null pointer for type=%s", type_name.c_str());
+        }
+    } catch (const std::bad_any_cast&) {
+        LOG_ERR("IPC", "AnyData is not shared_ptr<void> for type=%s", type_name.c_str());
     }
-    IpcAdapter::~IpcAdapter() {
-        stop();
+
+    bool ok = sample_ptr ? rtpdds::dds_to_json(type_name, sample_ptr, data_json) : false;
+
+    if (!ok) {
+        data_json = nlohmann::json();
+        LOG_WRN("IPC", "dds_to_json failed type=%s", type_name.c_str());
+    } else {
+        // Keep a truncated preview only for server-side logs; do not include a separate
+        // "display" field in the EVT payload. The EVT carries the full JSON object
+        // in the "data" field per protocol (object-first).
+        auto preview = data_json.dump();
+        if (preview.size() > 2048) preview.resize(2048);
+        LOG_DBG("IPC", "data json preview=%s", preview.c_str());
     }
-    bool IpcAdapter::start_server(const std::string &bind_addr, uint16_t port) {
-        return ipc_.start(dkmrtp::ipc::Role::Server, {bind_addr, port});
+
+    nlohmann::json evt = {{"evt", "data"}, {"topic", topic}, {"type", type_name}, {"data", data_json}};
+    LOG_INF("IPC", "send EVT topic=%s type=%s", topic.c_str(), type_name.c_str());
+
+    auto out = nlohmann::json::to_cbor(evt);
+    // OUT flow log for event
+    LOG_WRN("FLOW", "OUT evt topic=%s type=%s evt=%s", topic.c_str(), type_name.c_str(), evt.dump().c_str());
+    ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
+}
+
+// Build structured capability list used in hello response.
+static nlohmann::json build_hello_capabilities()
+{
+    nlohmann::json caps = nlohmann::json::array();
+
+    // create.participant
+    {
+        nlohmann::json cap;
+        cap["name"] = "create.participant";
+        nlohmann::json example;
+        example["op"] = "create";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "participant";
+        example["args"] = nlohmann::json::object();
+        example["args"]["domain"] = 0;
+        example["args"]["qos"] = "TriadQosLib::DefaultReliable";
+        cap["example"] = example;
+        caps.push_back(cap);
     }
-    bool IpcAdapter::start_client(const std::string &peer_addr, uint16_t port) {
-        return ipc_.start(dkmrtp::ipc::Role::Client, {peer_addr, port});
+
+    // create.publisher
+    {
+        nlohmann::json cap;
+        cap["name"] = "create.publisher";
+        nlohmann::json example;
+        example["op"] = "create";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "publisher";
+        example["args"] = nlohmann::json::object();
+        example["args"]["domain"] = 0;
+        example["args"]["publisher"] = "pub1";
+        example["args"]["qos"] = "TriadQosLib::DefaultReliable";
+        cap["example"] = example;
+        caps.push_back(cap);
     }
-    void IpcAdapter::stop() {
-        ipc_.stop();
+
+    // create.subscriber
+    {
+        nlohmann::json cap;
+        cap["name"] = "create.subscriber";
+        nlohmann::json example;
+        example["op"] = "create";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "subscriber";
+        example["args"] = nlohmann::json::object();
+        example["args"]["domain"] = 0;
+        example["args"]["subscriber"] = "sub1";
+        example["args"]["qos"] = "TriadQosLib::DefaultReliable";
+        cap["example"] = example;
+        caps.push_back(cap);
     }
-    void IpcAdapter::install_callbacks() {
-        dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
-        cb.on_cmd_participant_create =
-            [this](const dkmrtp::ipc::Header &h,
-                   const dkmrtp::ipc::CmdParticipantCreate &cmd) {
-                LOG_INF(
-                    "IPC", "CMD_PARTICIPANT_CREATE id=%u domain=%d qos=%s::%s",
-                    h.corr_id, cmd.domain_id, cmd.qos_library, cmd.qos_profile);
-                const bool ok = mgr_.create_participant(
-                    cmd.domain_id, cmd.qos_library, cmd.qos_profile);
-                if (ok) {
-                    ipc_.send_ack(h.corr_id);
-        // 한국어: 명령 성공 → UI에 ACK 응답
-                    LOG_INF("IPC", "ACK id=%u", h.corr_id);
-                } else {
-                    ipc_.send_error(h.corr_id, 1, "participant create failed");
-                    LOG_ERR("IPC", "ERR id=%u code=1", h.corr_id);
-                }
-            };
 
-        cb.on_cmd_publisher_create =
-            [this](const dkmrtp::ipc::Header &h,
-                   const dkmrtp::ipc::CmdPublisherCreate &cmd) {
-                LOG_INF(
-                    "IPC",
-                    "CMD_PUBLISHER_CREATE id=%u topic=%s type=%s qos=%s::%s",
-                    h.corr_id, cmd.topic, cmd.type_name, cmd.qos_library,
-                    cmd.qos_profile);
-                const bool ok = mgr_.create_writer(
-                    cmd.topic, cmd.type_name, cmd.qos_library, cmd.qos_profile);
-                if (ok) {
-                    ipc_.send_ack(h.corr_id);
-                    LOG_INF("IPC", "ACK id=%u", h.corr_id);
-                } else {
-                    ipc_.send_error(h.corr_id, 2, "writer create failed");
-                    LOG_ERR("IPC", "ERR id=%u code=2", h.corr_id);
-                }
-            };
+    // create.writer
+    {
+        nlohmann::json cap;
+        cap["name"] = "create.writer";
+        nlohmann::json example;
+        example["op"] = "create";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "writer";
+        example["target"]["topic"] = "ExampleTopic";
+        example["target"]["type"] = "ExampleType";
+        example["args"] = nlohmann::json::object();
+        example["args"]["domain"] = 0;
+        example["args"]["publisher"] = "pub1";
+        example["args"]["qos"] = "TriadQosLib::DefaultReliable";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
 
-        cb.on_cmd_subscriber_create =
-            [this](const dkmrtp::ipc::Header &h,
-                   const dkmrtp::ipc::CmdSubscriberCreate &cmd) {
-                LOG_INF(
-                    "IPC",
-                    "CMD_SUBSCRIBER_CREATE id=%u topic=%s type=%s qos=%s::%s",
-                    h.corr_id, cmd.topic, cmd.type_name, cmd.qos_library,
-                    cmd.qos_profile);
-                const bool ok = mgr_.create_reader(
-                    cmd.topic, cmd.type_name, cmd.qos_library, cmd.qos_profile);
-                if (ok) {
-                    ipc_.send_ack(h.corr_id);
-                    LOG_INF("IPC", "ACK id=%u", h.corr_id);
-                } else {
-                    ipc_.send_error(h.corr_id, 3, "reader create failed");
-                    LOG_ERR("IPC", "ERR id=%u code=3", h.corr_id);
-                }
-            };
+    // create.reader
+    {
+        nlohmann::json cap;
+        cap["name"] = "create.reader";
+        nlohmann::json example;
+        example["op"] = "create";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "reader";
+        example["target"]["topic"] = "ExampleTopic";
+        example["target"]["type"] = "ExampleType";
+        example["args"] = nlohmann::json::object();
+        example["args"]["domain"] = 0;
+        example["args"]["subscriber"] = "sub1";
+        example["args"]["qos"] = "TriadQosLib::DefaultReliable";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
 
-        cb.on_cmd_publish_sample =
-            [this](const dkmrtp::ipc::Header &h,
-                   const dkmrtp::ipc::CmdPublishSample &cmd,
-                   const uint8_t *body) {
-                std::string text;
-                if (cmd.content_len)
-                    text.assign(reinterpret_cast<const char *>(body),
-                                cmd.content_len);
-                LOG_INF("IPC", "CMD_PUBLISH_SAMPLE id=%u topic=%s bytes=%u",
-                        h.corr_id, cmd.topic, cmd.content_len);
-                const bool ok = mgr_.publish_text(cmd.topic, text);
-                if (ok) {
-                    ipc_.send_ack(h.corr_id);
-                    LOG_INF("IPC", "ACK id=%u", h.corr_id);
-                } else {
-                    ipc_.send_error(h.corr_id, 4, "publish failed");
-                    LOG_ERR("IPC", "ERR id=%u code=4", h.corr_id);
-                }
-            };
+    // write (publish text)
+    {
+        nlohmann::json cap;
+        cap["name"] = "write";
+        nlohmann::json example;
+        example["op"] = "write";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "writer";
+        example["target"]["topic"] = "chat";
+        example["data"] = nlohmann::json::object();
+        example["data"]["text"] = "Hello world";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
 
-// === Unified RPC Envelope (CBOR over IPC) ===
-        cb.on_request = [this](const dkmrtp::ipc::Header &h,
-                               const uint8_t *body, uint32_t len) {
-            try {
-                nlohmann::json req = nlohmann::json::from_cbor(
-                    std::vector<uint8_t>(body, body + len));
-                auto op = req.value("op", std::string());
-                auto target = req.value("target", nlohmann::json::object());
-                auto kind = target.value("kind", std::string());
-                nlohmann::json rsp;
-                bool ok = false;
+    // get.qos
+    {
+        nlohmann::json cap;
+        cap["name"] = "get.qos";
+        nlohmann::json example;
+        example["op"] = "get";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "qos";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
 
-                if (op == "create" && kind == "participant") {
-                    int domain = req["args"].value("domain", 0);
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
-                    std::string lib = "", prof = "";
-                    auto p = qos.find("::");
-                    if (p != std::string::npos) {
-                        lib = qos.substr(0, p);
-                        prof = qos.substr(p + 2);
-                    }
-                    ok = mgr_.create_participant(domain, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
-                } else if (op == "create" && kind == "writer") {
-                    std::string topic = target.value("topic", "");
-                    std::string type = target.value("type", "StringMsg");
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
-                    std::string lib = "", prof = "";
-                    auto p = qos.find("::");
-                    if (p != std::string::npos) {
-                        lib = qos.substr(0, p);
-                        prof = qos.substr(p + 2);
-                    }
-                    ok = mgr_.create_writer(topic, type, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
-                } else if (op == "create" && kind == "reader") {
-                    std::string topic = target.value("topic", "");
-                    std::string type = target.value("type", "StringMsg");
-                    std::string qos = req["args"].value(
-                        "qos", "TriadQosLib::DefaultReliable");
-                    std::string lib = "", prof = "";
-                    auto p = qos.find("::");
-                    if (p != std::string::npos) {
-                        lib = qos.substr(0, p);
-                        prof = qos.substr(p + 2);
-                    }
-                    ok = mgr_.create_reader(topic, type, lib, prof);
-                    if (ok)
-                        rsp = {{"ok", true}};
-                } else if (op == "write" && kind == "writer") {
-                    std::string topic = target.value("topic", "");
-                    std::string text = req["data"].value("text", "");
-                    ok = mgr_.publish_text(topic, text);
-                    if (ok)
-                        rsp = {{"ok", true}};
-                } else if (op == "hello") {
-                    ok = true;
-                    rsp = {{"ok", true},
-                           {"result",
-                            {{"proto", 1},
-                             {"cap",
-                              {"create.participant", "create.writer",
-                               "create.reader", "write", "evt.data"}}}}};
-                }
+    // set.qos
+    {
+        nlohmann::json cap;
+        cap["name"] = "set.qos";
+        nlohmann::json example;
+        example["op"] = "set";
+        example["target"] = nlohmann::json::object();
+        example["target"]["kind"] = "qos";
+        example["data"] = nlohmann::json::object();
+        example["data"]["library"] = "NGVA_QoS_Library";
+        example["data"]["profile"] = "custom_profile";
+        example["data"]["xml"] = "<qos_profile name=\"custom_profile\">...</qos_profile>";
+        cap["example"] = example;
+        caps.push_back(cap);
+    }
 
-                if (!ok && rsp.empty())
-                    rsp = {{"ok", false},
-                           {"err", 4},
-                           {"msg", "unsupported or failed"}};
+    // evt.data description
+    {
+        nlohmann::json cap;
+        cap["name"] = "evt.data";
+        cap["description"] = "Gateway sends EVT messages when DDS samples are received. See protocol doc for evt.data format.";
+        caps.push_back(cap);
+    }
 
-                auto out = nlohmann::json::to_cbor(rsp);
-                ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, h.corr_id,
-                                out.data(), (uint32_t)out.size());
-            } catch (...) {
-                nlohmann::json rsp = {
-                    {"ok", false}, {"err", 7}, {"msg", "json/cbor error"}};
-                auto out = nlohmann::json::to_cbor(rsp);
-                ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, h.corr_id,
-                                out.data(), (uint32_t)out.size());
+    return caps;
+}
+
+// set the post function used to forward CommandEvent into the gateway async queue
+void IpcAdapter::set_command_post(std::function<void(const async::CommandEvent&)> f) {
+    post_cmd_ = std::move(f);
+    LOG_INF("IPC", "command post installed");
+}
+
+
+// process_request: called from consumer thread to actually handle command
+void IpcAdapter::process_request(const async::CommandEvent& ev) {
+    const auto t0 = std::chrono::steady_clock::now();
+    LOG_DBG("IPC", "process_request corr_id=%u size=%zu route=%s",
+            ev.corr_id, ev.body.size(), ev.route.c_str());
+
+    nlohmann::json rsp;
+
+    try {
+        nlohmann::json req = nlohmann::json::from_cbor(ev.body);
+        const std::string op = req.value("op", "");
+        const auto target = req.value("target", nlohmann::json::object());
+        const std::string kind = target.value("kind", std::string());
+        const std::string target_str = target.dump();
+        LOG_DBG("IPC", "req op=%s kind=%s target=%s", op.c_str(), kind.c_str(), target_str.c_str());
+
+        bool ok = false;
+
+        // Small helper lambdas to keep each branch focused and readable.
+        auto do_clear = [&]() {
+            mgr_.clear_entities();
+            rsp = { {"ok", true}, {"result", {{"action", "dds entities cleared"}}} };
+            ok = true;
+        };
+
+        auto create_participant = [&]() {
+            int domain = req["args"].value("domain", 0);
+            std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+            std::string lib = "", prof = "";
+            auto p = qos.find("::");
+            if (p != std::string::npos) {
+                lib = qos.substr(0, p);
+                prof = qos.substr(p + 2);
+            }
+            LOG_DBG("IPC", "Calling DdsManager::create_participant(domain=%d, lib=%s, prof=%s)", domain,
+                    lib.c_str(), prof.c_str());
+            DdsResult res = mgr_.create_participant(domain, lib, prof);
+            if (res.ok) {
+                LOG_INF("IPC", "participant created: domain=%d qos=%s", domain, qos.c_str());
+                rsp = { {"ok", true}, {"result", {{"action", "participant created"}, {"domain", domain}}} };
+                ok = true;
+            } else {
+                LOG_ERR("IPC", "participant creation failed: domain=%d category=%d reason=%s", domain,
+                        (int)res.category, res.reason.c_str());
+                rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
         };
 
-        // DDS에서 샘플 수신 시 EVT 전송(JSON→CBOR)
-        mgr_.set_on_sample(
-            [this](const std::string &topic, const std::string &text) {
-                nlohmann::json evt = {{"evt", "data"},
-                                      {"topic", topic},
-                                      {"type", "StringMsg"},
-                                      {"sample", {{"text", text}}}};
-                auto out = nlohmann::json::to_cbor(evt);
-                ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(),
-                                (uint32_t)out.size());
-            });
+        auto create_publisher = [&]() {
+            int domain = req["args"].value("domain", 0);
+            std::string pub = req["args"].value("publisher", "pub1");
+            std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+            std::string lib = "", prof = "";
+            auto p = qos.find("::");
+            if (p != std::string::npos) {
+                lib = qos.substr(0, p);
+                prof = qos.substr(p + 2);
+            }
+            LOG_DBG("IPC", "Calling DdsManager::create_publisher(domain=%d, pub=%s, lib=%s, prof=%s)", domain,
+                    pub.c_str(), lib.c_str(), prof.c_str());
+            DdsResult res = mgr_.create_publisher(domain, pub, lib, prof);
+            if (res.ok) {
+                LOG_INF("IPC", "publisher created: domain=%d pub=%s qos=%s", domain, pub.c_str(), qos.c_str());
+                rsp = { {"ok", true}, {"result", {{"action", "publisher created"}, {"domain", domain}, {"publisher", pub}}} };
+                ok = true;
+            } else {
+                LOG_ERR("IPC", "publisher creation failed: domain=%d pub=%s category=%d reason=%s", domain,
+                        pub.c_str(), (int)res.category, res.reason.c_str());
+                rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
+            }
+        };
 
+        auto create_subscriber = [&]() {
+            int domain = req["args"].value("domain", 0);
+            std::string sub = req["args"].value("subscriber", "sub1");
+            std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+            std::string lib = "", prof = "";
+            auto p = qos.find("::");
+            if (p != std::string::npos) {
+                lib = qos.substr(0, p);
+                prof = qos.substr(p + 2);
+            }
+            LOG_DBG("IPC", "Calling DdsManager::create_subscriber(domain=%d, sub=%s, lib=%s, prof=%s)", domain,
+                    sub.c_str(), lib.c_str(), prof.c_str());
+            DdsResult res = mgr_.create_subscriber(domain, sub, lib, prof);
+            if (res.ok) {
+                LOG_INF("IPC", "subscriber created: domain=%d sub=%s qos=%s", domain, sub.c_str(), qos.c_str());
+                rsp = { {"ok", true}, {"result", {{"action", "subscriber created"}, {"domain", domain}, {"subscriber", sub}}} };
+                ok = true;
+            } else {
+                LOG_ERR("IPC", "subscriber creation failed: domain=%d sub=%s category=%d reason=%s", domain,
+                        sub.c_str(), (int)res.category, res.reason.c_str());
+                rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
+            }
+        };
 
+        auto create_writer = [&]() {
+            int domain = req["args"].value("domain", 0);
+            std::string pub = req["args"].value("publisher", "pub1");
+            std::string topic = target.contains("topic") ? target.value("topic", "") : "";
+            std::string type = target.contains("type") ? target.value("type", "") : "";
+            std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+            std::string lib = "", prof = "";
+            auto p = qos.find("::");
+            if (p != std::string::npos) {
+                lib = qos.substr(0, p);
+                prof = qos.substr(p + 2);
+            }
+            if (topic.empty() || type.empty()) {
+                LOG_ERR("IPC", "writer creation failed: missing topic or type tag");
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
+            } else {
+                LOG_DBG("IPC",
+                        "Calling DdsManager::create_writer(domain=%d, pub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
+                        domain, pub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
+                uint64_t holder_id = 0;
+                DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof, &holder_id);
+                if (res.ok) {
+                    LOG_INF("IPC", "writer created: domain=%d pub=%s topic=%s type=%s", domain, pub.c_str(),
+                            topic.c_str(), type.c_str());
+                    rsp = { {"ok", true}, {"result", {{"action", "writer created"}, {"domain", domain}, {"publisher", pub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
+                    ok = true;
+                } else {
+                    LOG_ERR(
+                        "IPC", "writer creation failed: domain=%d pub=%s topic=%s type=%s category=%d reason=%s",
+                        domain, pub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
+                    rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
+                }
+            }
+        };
 
-        ipc_.set_callbacks(cb);
+        auto create_reader = [&]() {
+            int domain = req["args"].value("domain", 0);
+            std::string sub = req["args"].value("subscriber", "sub1");
+            std::string topic = target.contains("topic") ? target.value("topic", "") : "";
+            std::string type = target.contains("type") ? target.value("type", "") : "";
+            std::string qos = req["args"].value("qos", "TriadQosLib::DefaultReliable");
+            std::string lib = "", prof = "";
+            auto p = qos.find("::");
+            if (p != std::string::npos) {
+                lib = qos.substr(0, p);
+                prof = qos.substr(p + 2);
+            }
+            if (topic.empty() || type.empty()) {
+                LOG_ERR("IPC", "reader creation failed: missing topic or type tag");
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
+            } else {
+                LOG_DBG("IPC",
+                        "Calling DdsManager::create_reader(domain=%d, sub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
+                        domain, sub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
+                uint64_t holder_id = 0;
+                DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof, &holder_id);
+                if (res.ok) {
+                    LOG_INF("IPC", "reader created: domain=%d sub=%s topic=%s type=%s", domain, sub.c_str(),
+                            topic.c_str(), type.c_str());
+                    rsp = { {"ok", true}, {"result", {{"action", "reader created"}, {"domain", domain}, {"subscriber", sub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
+                    ok = true;
+                } else {
+                    LOG_ERR(
+                        "IPC", "reader creation failed: domain=%d sub=%s topic=%s type=%s category=%d reason=%s",
+                        domain, sub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
+                    rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
+                }
+            }
+        };
+
+        auto do_write = [&]() {
+            if (kind != "writer") return;
+            std::string topic = target.value("topic", "");
+            if (topic.empty()) {
+                LOG_ERR("IPC", "publish_json failed: missing topic tag");
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic tag"} };
+                return;
+            }
+            // Expect data to be a JSON object
+            if (!req.contains("data") || !req["data"].is_object()) {
+                LOG_ERR("IPC", "publish_json failed: missing or invalid data object for topic=%s", topic.c_str());
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object"} };
+                return;
+            }
+            nlohmann::json data_json = req["data"];
+            LOG_DBG("IPC", "Calling DdsManager::publish_json(topic=%s, data=%s)", topic.c_str(), data_json.dump().c_str());
+            DdsResult res = mgr_.publish_json(topic, data_json);
+            if (res.ok) {
+                LOG_INF("IPC", "publish_json ok: topic=%s", topic.c_str());
+                rsp = { {"ok", true}, {"result", {{"action", "publish ok"}, {"topic", topic}}} };
+                ok = true;
+            } else {
+                LOG_ERR("IPC", "publish_json failed: topic=%s category=%d reason=%s", topic.c_str(),
+                        (int)res.category, res.reason.c_str());
+                rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
+            }
+        };
+
+        auto do_hello = [&]() {
+            LOG_DBG("IPC", "Received hello op");
+            ok = true;
+            rsp = nlohmann::json::object();
+            rsp["ok"] = true;
+            rsp["result"] = nlohmann::json::object();
+            rsp["result"]["proto"] = 1;
+            rsp["result"]["cap"] = build_hello_capabilities();
+        };
+
+        auto do_get = [&]() {
+            if (kind != "qos") return;
+            LOG_DBG("IPC", "Received get qos request");
+            try {
+                // args are optional booleans
+                bool include_builtin = false;
+                bool include_detail = false;
+                if (req.contains("args") && req["args"].is_object()) {
+                    include_builtin = req["args"].value("include_builtin", false);
+                    include_detail = req["args"].value("detail", false);
+                }
+                LOG_DBG("IPC", "get.qos: include_builtin=%d include_detail=%d", include_builtin, include_detail);
+
+                auto json_out = mgr_.list_qos_profiles(include_builtin, include_detail);
+                // ensure result field present (must be returned)
+                nlohmann::json result = json_out.value("result", nlohmann::json::array());
+
+                rsp["ok"] = true;
+                rsp["result"] = result;
+
+                if (include_detail) {
+                    // include detail only when requested; manager returns an array now
+                    rsp["detail"] = json_out.value("detail", nlohmann::json::array());
+                    LOG_DBG("IPC", "get.qos: including detail entries=%zu", rsp["detail"].size());
+                } else {
+                    LOG_DBG("IPC", "get.qos: detail not requested - omitted from response");
+                }
+                ok = true;
+            } catch (const std::exception& ex) {
+                LOG_ERR("IPC", "get qos handler exception: %s", ex.what());
+                rsp = { {"ok", false}, {"err", 4}, {"msg", "failed to build qos list"} };
+            }
+        };
+
+        auto do_set_qos = [&]() {
+            // QoS Profile 동적 추가/업데이트
+            // 요청: { "op": "set", "target": { "kind": "qos" }, "data": { "library": "...", "profile": "...", "xml": "..." } }
+            if (!req.contains("data") || !req["data"].is_object()) {
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object for set.qos"} };
+                return;
+            }
+            
+            const auto& data = req["data"];
+            std::string library = data.value("library", "");
+            std::string profile = data.value("profile", "");
+            std::string xml = data.value("xml", "");
+            
+            if (library.empty() || profile.empty() || xml.empty()) {
+                rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing required fields: library, profile, xml"} };
+                return;
+            }
+            
+            // DdsManager의 QosStore에 Profile 추가/업데이트
+            std::string full_name = mgr_.add_or_update_qos_profile(library, profile, xml);
+            if (full_name.empty()) {
+                rsp = { {"ok", false}, {"err", 4}, {"msg", "Failed to add/update QoS profile"} };
+                return;
+            }
+            
+            ok = true;
+            rsp = {
+                {"ok", true},
+                {"result", {
+                    {"action", "qos profile updated"},
+                    {"profile", full_name}
+                }}
+            };
+        };
+
+        // Dispatch by op
+        if (op == "clear" && kind == "dds_entities") {
+            do_clear();
+        } else if (op == "create") {
+            if (kind == "participant") create_participant();
+            else if (kind == "publisher") create_publisher();
+            else if (kind == "subscriber") create_subscriber();
+            else if (kind == "writer") create_writer();
+            else if (kind == "reader") create_reader();
+        } else if (op == "write") {
+            do_write();
+        } else if (op == "hello") {
+            do_hello();
+        } else if (op == "get") {
+            do_get();
+        } else if (op == "set" && kind == "qos") {
+            do_set_qos();
+        }
+        // NOTE: For brevity, other branches (publisher/subscriber/writer/reader/write/hello) should be
+        // moved here similarly from the previous on_request implementation.
+
+        if (!ok && rsp.empty()) rsp = {{"ok", false}, {"err", 4}, {"msg", "unsupported or failed"}};
+    } catch (const std::exception& ex) {
+        LOG_ERR("IPC", "process_request exception: %s", ex.what());
+        rsp = {{"ok", false}, {"err", 7}, {"msg", "json/cbor error"}};
     }
-} // namespace rtpdds
+
+    // OUT flow log for response
+    try {
+        LOG_WRN("FLOW", "OUT corr_id=%u rsp=%s", ev.corr_id, rsp.dump().c_str());
+    } catch (...) {
+        LOG_WRN("FLOW", "OUT corr_id=%u rsp=<non-json or too large>", ev.corr_id);
+    }
+    auto out = nlohmann::json::to_cbor(rsp);
+    ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
+
+    const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+    const auto qd = std::chrono::duration_cast<std::chrono::microseconds>(t0 - ev.received_time).count();
+    LOG_INF("IPC", "process_request done corr_id=%u q_delay(us)=%lld exec(us)=%lld rsp_size=%zu",
+            ev.corr_id, (long long)qd, (long long)dt, out.size());
+}
+
+}  // namespace rtpdds
+

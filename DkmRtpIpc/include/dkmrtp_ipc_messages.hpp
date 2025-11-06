@@ -40,28 +40,6 @@ struct Header {
             MSG_FRAME_EVT = 0x1002 // Event frame (payload: CBOR/JSON)
         };
 #pragma pack(push, 1)
-        struct CmdParticipantCreate {
-            int32_t domain_id{0};
-            char qos_library[128] = {0};
-            char qos_profile[128] = {0};
-        };
-        struct CmdPublisherCreate {
-            char topic[64] = {0};
-            char type_name[64] = {0};
-            char qos_library[128] = {0};
-            char qos_profile[128] = {0};
-        };
-        struct CmdSubscriberCreate {
-            char topic[64] = {0};
-            char type_name[64] = {0};
-            char qos_library[128] = {0};
-            char qos_profile[128] = {0};
-        };
-        struct CmdPublishSample {
-            char topic[64] = {0};
-            char type_name[64] = {0};
-            uint32_t content_len{0};
-        };
         struct RspError {
             uint32_t err_code{0};
         };

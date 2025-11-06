@@ -1,7 +1,11 @@
-BasedOnStyle: LLVM
+BasedOnStyle: Google
 IndentWidth: 4
-BreakBeforeBraces: Attach
-AllowShortFunctionsOnASingleLine: None
-AllowShortIfStatementsOnASingleLine: Never
-AllowShortLoopsOnASingleLine: false
-NamespaceIndentation: All
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 120
+PointerAlignment: Left
+DerivePointerAlignment: false
+SpaceBeforeParens: ControlStatements
+AllowShortFunctionsOnASingleLine: Empty
+BreakBeforeBraces: Linux
+Standard: Cpp03

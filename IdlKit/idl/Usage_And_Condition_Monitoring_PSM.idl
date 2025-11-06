@@ -1,0 +1,202 @@
+#include "LDM_Common.idl"
+
+module P_UCMS
+{
+   enum T_Monitored_Entity_StateType
+   {
+      L_Monitored_Entity_StateType_ON,
+      L_Monitored_Entity_StateType_OFF
+   };
+
+   enum T_BITType
+   {
+      L_BITType_C_BIT,
+      L_BITType_P_BIT,
+      L_BITType_I_BIT
+   };
+
+   // The health status of a system or sub-system (operational, degraded ot not operational).
+   enum T_HealthStatus
+   {
+      L_HealthStatus_OPERATIONAL,
+      L_HealthStatus_DEGRADED,
+      L_HealthStatus_NOT_OPERATIONAL,
+      L_HealthStatus_UNKNOWN
+   };
+
+   enum T_MonitoredCharacteristicKind
+   {
+      L_MonitoredCharacteristicKind_INSTANT,
+      L_MonitoredCharacteristicKind_CUMULATIVE
+   };
+
+   // Indicates the warning level of a given data with regards to two levels of thresholds.
+   enum T_MonitoredDataWarningLevel
+   {
+      L_MonitoredDataWarningLevel_NO_WARNING,
+      L_MonitoredDataWarningLevel_PRE_WARNING,
+      L_MonitoredDataWarningLevel_WARNING
+   };
+
+   // Indicates if a data threshold is a min. or a max. value.
+   // In the first case, the data is considered NOK if its value is lower than the threshold.
+   // In the second case, the data is considered NOK if its value exceeds the threshold.
+   enum T_ThresholdType
+   {
+      L_ThresholdType_MIN,
+      L_ThresholdType_MAX
+   };
+
+   // An event indicating that a failure occurred in a sub-system or is expected to occur (predicted failure issued by a supervision and analysis system).  
+   // 
+   struct C_Failure_Event
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_DateTimeType A_eventOccurenceDate;
+      P_LDM_Common::T_Double A_standardFaultCode;
+      P_LDM_Common::T_LongString A_proprietaryFaultCode;
+      P_LDM_Common::T_Boolean A_predictedFailure;
+      P_LDM_Common::T_LongString A_failureDescription;
+      P_LDM_Common::T_LongString A_causeDescription;
+      P_LDM_Common::T_LongString A_operationalConsequenceDescription;
+      P_LDM_Common::T_LongString A_operatorActionDescription;
+      P_LDM_Common::T_LongString A_maintenanceActionDescription;
+      P_LDM_Common::T_LongString A_complementaryInformation;
+      P_LDM_Common::T_LongString A_eventDocumentationURI;
+      P_LDM_Common::T_IdentifierType A_monitoredEntity_sourceID;
+   };
+
+   struct C_Installed_Software
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_Int32 A_serialNumber;
+      P_LDM_Common::T_Int32 A_version;
+      P_LDM_Common::T_Int32 A_configuration;
+      P_LDM_Common::T_IdentifierType A_subSystem_sourceID;
+   };
+
+   // Instant or cumulative monitored usage and condition data of a sub-system, as calculated by the monitored entity itself or by the UCMS service.
+   // Ex. current temperature of an electronic component (instant monitored characteristic), vehicle mileage (cumulative monitored characteristic)
+   // 
+   // 
+   struct C_Monitored_Characteristic
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_Double A_value;
+      P_LDM_Common::T_IdentifierType A_monitoredEntity_sourceID;
+      P_LDM_Common::T_IdentifierType A_specification_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_thresholdExceedenceEvents_sourceID;
+   };
+
+   // The static parameters of a monitored usage and condition data of a sub-system.
+   // Ex. temperature of the crew compartment ; vehicle mileage.
+   struct C_Monitored_Characteristic_Specification
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_ShortString A_unit;
+      P_LDM_Common::T_LongString A_descriptor;
+      P_LDM_Common::T_Int32 A_publishingIntervalInSeconds;
+      P_UCMS::T_MonitoredCharacteristicKind A_characteristicKind;
+      sequence <P_LDM_Common::T_IdentifierType> A_specifiedMonitoredCharacteristic_sourceID;
+      P_LDM_Common::T_IdentifierType A_thresholds_sourceID;
+   };
+
+   struct C_Monitored_Entity_runBIT
+   {
+      P_LDM_Common::T_IdentifierType A_recipientID; //@key
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_Int32 A_referenceNum;
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_UCMS::T_BITType A_type;
+   };
+
+   // The status of system (platform or sub-system) whose usage and condition is being monitored.
+   struct C_Monitored_Entity
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_UCMS::T_HealthStatus A_healthStatus;
+      T_Monitored_Entity_StateType A_currentState;
+      P_LDM_Common::T_IdentifierType A_specification_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_monitoredCharacteristics_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_failureEvents_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_installedSoftware_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_preventativeMaintenanceRecomendedEvents_sourceID;
+   };
+
+   // The static parameters of an entity (whole platform or sub-system) whose usage and condition is being monitored.
+   // 
+   struct C_Monitored_Entity_Specification
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_Boolean A_cumulativeMonitoredCharacteristicsOutputSupported;
+      P_LDM_Common::T_Boolean A_failureStandardFaultCodeSupported;
+      P_LDM_Common::T_Boolean A_failureProprietaryFaultCodeSupported;
+      P_LDM_Common::T_Boolean A_failureDescriptionSupported;
+      P_LDM_Common::T_Boolean A_failureCauseDescriptionSupported;
+      P_LDM_Common::T_Boolean A_failureOperationalConsequenceDescriptionSupported;
+      P_LDM_Common::T_Boolean A_failureOperatorActionDescriptionSupported;
+      P_LDM_Common::T_Boolean A_failureMaintenanceActionDescriptionSupported;
+      P_LDM_Common::T_Boolean A_failureComplementaryInformationSupported;
+      P_LDM_Common::T_Boolean A_failureDocumentationURISupported;
+      P_LDM_Common::T_DateTimeType A_installationDateTime;
+      sequence <P_LDM_Common::T_IdentifierType> A_specifiedMonitoredEntities_sourceID;
+   };
+
+   struct C_Preventive_Maintenance_Recommended_Event
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_MediumString A_dataDescriptor;
+      P_LDM_Common::T_ShortString A_dataUnit;
+      P_LDM_Common::T_Double A_dataValue;
+      P_LDM_Common::T_Double A_preventiveMaintenanceThreshold;
+      P_LDM_Common::T_DateTimeType A_occurrenceDateTime;
+      P_LDM_Common::T_IdentifierType A_subSystem_sourceID;
+   };
+
+   struct C_Threshold
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_MediumString A_name;
+      P_LDM_Common::T_Double A_value;
+      P_UCMS::T_ThresholdType A_type;
+      P_LDM_Common::T_Int32 A_maxDuration;
+      P_LDM_Common::T_Int32 A_maxNumberOfRepetitions;
+      sequence <P_LDM_Common::T_IdentifierType> A_conditionedThresholds_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_conditioningThreshold_sourceID;
+      P_LDM_Common::T_IdentifierType A_concernedCharacteristic_sourceID;
+      P_LDM_Common::T_IdentifierType A_specification_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_exceedenceEvents_sourceID;
+      P_LDM_Common::T_IdentifierType A_conditionongThreshold_sourceID;
+      sequence <P_LDM_Common::T_IdentifierType> A_conditionedThreshold_sourceID;
+   };
+
+   struct C_Threshold_Exceedence_Event
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_DateTimeType A_eventOccurenceDate;
+      P_LDM_Common::T_Double A_measuredValue;
+      sequence <P_LDM_Common::T_IdentifierType> A_inducedEvents_sourceID;
+      P_LDM_Common::T_IdentifierType A_inducingEvent_sourceID;
+      P_LDM_Common::T_IdentifierType A_concernedCharacteristic_sourceID;
+      P_LDM_Common::T_IdentifierType A_exceededThreshold_sourceID;
+   };
+
+   struct C_Threshold_Specification
+   {
+      P_LDM_Common::T_IdentifierType A_sourceID; //@key
+      P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
+      P_LDM_Common::T_Boolean A_valueThresholdSupported;
+      P_LDM_Common::T_Boolean A_durationThresholdSupported;
+      P_LDM_Common::T_Boolean A_repetitionsThresholdSupported;
+      sequence <P_LDM_Common::T_IdentifierType> A_specifiedThreshold_sourceID;
+   };
+};

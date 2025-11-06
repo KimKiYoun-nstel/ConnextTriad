@@ -5,7 +5,7 @@
       <participant_qos>
         <transport_builtin><mask>UDPv4</mask></transport_builtin>
       </participant_qos>
-      <datawriter_qos><publish_mode><kind>ASYNCHRONOUS_WRITER</kind></publish_mode></datawriter_qos>
+      <datawriter_qos><publish_mode><kind>ASYNCHRONOUS_PUBLISH_MODE_QOS</kind></publish_mode></datawriter_qos>
       <datareader_qos><reliability><kind>RELIABLE_RELIABILITY_QOS</kind></reliability></datareader_qos>
     </qos_profile>
   </qos_library>
