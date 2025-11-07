@@ -1,4 +1,8 @@
 #pragma once
+/**
+ * @file qos_store.hpp
+ * @brief QoS 프로파일 로딩/캐시/업데이트/조회 저장소 인터페이스
+ */
 #include <dds/dds.hpp>
 #include <dds/core/QosProvider.hpp>
 #include <nlohmann/json.hpp>
@@ -12,6 +16,10 @@
 
 namespace rtpdds {
 
+/**
+ * @brief 단일 QoS 프로파일에서 추출된 QoS 세트
+ * @details 동일한 library::profile로부터 participant/publisher/subscriber/topic/writer/reader QoS를 모은 묶음
+ */
 struct QosPack {
     dds::domain::qos::DomainParticipantQos participant;
     dds::pub::qos::PublisherQos            publisher;
@@ -22,19 +30,58 @@ struct QosPack {
     std::string                            origin_file;
 };
 
+/**
+ * @class QosStore
+ * @brief QoS 프로파일 로딩/캐시/동적 업데이트/상세 조회를 담당하는 저장소
+ *
+ * 기능 요약:
+ * - 외부 XML 디렉토리에서 QosProvider를 로드하여 library::profile를 인덱싱
+ * - 요청된 library::profile을 캐시하여 재사용(find_or_reload)
+ * - 런타임 XML 조각을 병합하여 동적 라이브러리를 구성(add_or_update_profile)
+ * - 목록(list_profiles)과 상세(detail_profiles) 조회 제공
+ *
+ * 스레드 안전성:
+ * - 내부 shared_mutex로 보호되어 다중 스레드 접근에 안전합니다.
+ */
 class QosStore {
 public:
+    /**
+     * @brief 생성자
+     * @param dir QoS XML 디렉토리 경로
+     */
     explicit QosStore(std::string dir);
     ~QosStore();
 
+    /**
+     * @brief 초기화 수행(파일 스캔/Provider 생성/캐시 클리어)
+     */
     void initialize();
 
+    /**
+     * @brief library::profile 검색 및 캐시 반환(필요 시 재로드)
+     * @param lib 라이브러리 이름
+     * @param profile 프로파일 이름
+     * @return QosPack (없으면 nullopt)
+     * @details 동적 provider → 외부 파일 provider → 전체 재로드 순으로 탐색합니다.
+     */
     std::optional<QosPack> find_or_reload(const std::string& lib, const std::string& profile);
 
+    /**
+     * @brief 모든 Provider를 재로드하고 캐시를 무효화
+     */
     void reload_all();
 
-    // 외부/내장 프로파일 목록 및 상세 (간단화된 effective only)
+    /**
+     * @brief 사용 가능한 프로파일 목록
+     * @param include_builtin 내장 후보 포함 여부
+     * @return ["lib::profile", ...] 정렬/중복 제거된 목록
+     */
     std::vector<std::string> list_profiles(bool include_builtin = true) const;
+    /**
+     * @brief 프로파일 상세 정보(배열)
+     * @param include_builtin 내장 후보 포함 여부
+     * @return [{"lib::profile": { "source_kind": "external|dynamic|builtin", "xml": "..." }} ...]
+     */
     nlohmann::json           detail_profiles(bool include_builtin = true) const;
 
     /**
@@ -48,6 +95,13 @@ public:
                                       const std::string& profile, 
                                       const std::string& profile_xml);
 
+    /**
+     * @brief 파일로부터 특정 library::profile의 XML 조각 추출
+     * @param file_path XML 파일 경로
+     * @param lib 라이브러리 이름
+     * @param profile 프로파일 이름
+     * @return 해당 qos_profile 블록(미존재 시 빈 문자열)
+     */
     static std::string extract_profile_xml(const std::string& file_path,
                                            const std::string& lib,
                                            const std::string& profile);
@@ -71,7 +125,7 @@ private:
 private:
     std::string dir_;
     std::vector<ProviderEntry> providers_;
-    // cached list of builtin candidate full profile names (e.g. "lib::profile")
+    // 내장 후보 풀네임 캐시 (예: "lib::profile")
     std::vector<std::string> builtin_candidates_;
     std::unordered_map<std::string, QosPack> cache_;
     mutable std::shared_mutex mtx_;

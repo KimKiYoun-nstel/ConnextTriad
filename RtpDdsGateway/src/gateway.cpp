@@ -13,6 +13,8 @@
 #include "async/sample_event.hpp"
 // logging
 #include "triad_log.hpp"
+// adapter
+#include "rtpdds/dds_manager_adapter.hpp"
 
 namespace rtpdds {
 
@@ -33,12 +35,12 @@ GatewayApp::GatewayApp()
     // 단일 핸들러 주입
     async::Handlers hs;
     hs.sample = [this](const async::SampleEvent& ev) {
-        LOG_DBG("ASYNC", "sample exec topic=%s type=%s seq=%llu",
+        LOG_FLOW("sample exec topic=%s type=%s seq=%llu",
                 ev.topic.c_str(), ev.type_name.c_str(), static_cast<unsigned long long>(ev.sequence_id));
         if (ipc_) ipc_->emit_evt_from_sample(ev);
     };
     hs.command = [this](const async::CommandEvent& ev) {
-        LOG_DBG("ASYNC", "cmd exec corr_id=%u size=%zu route=%s",
+        LOG_FLOW("cmd exec corr_id=%u size=%zu route=%s",
                 ev.corr_id, ev.body.size(), ev.route.c_str());
         if (ipc_) ipc_->process_request(ev);
     };
@@ -52,8 +54,8 @@ GatewayApp::GatewayApp()
                               const std::string& type_name,
                               const AnyData& data) {
         async::SampleEvent ev{topic, type_name, data};
-        LOG_DBG("ASYNC", "sample enq topic=%s type=%s seq=%llu",
-                ev.topic.c_str(), ev.type_name.c_str(), static_cast<unsigned long long>(ev.sequence_id));
+    LOG_FLOW("sample enq topic=%s type=%s seq=%llu",
+        ev.topic.c_str(), ev.type_name.c_str(), static_cast<unsigned long long>(ev.sequence_id));
         async_.post(ev);
     });
 }
@@ -67,12 +69,13 @@ GatewayApp::GatewayApp()
  * 내부적으로 IpcAdapter를 생성하고 서버 모드로 시작
  */
 bool GatewayApp::start_server(const std::string &bind, uint16_t port) {
-    if (!ipc_) ipc_ = std::make_unique<IpcAdapter>(mgr_);
+    if (!mgr_iface_) mgr_iface_ = std::make_unique<DdsManagerAdapter>(mgr_);
+    if (!ipc_) ipc_ = std::make_unique<IpcAdapter>(*mgr_iface_);
     if (!rx_)  rx_  = async::create_receiver(rx_mode_, mgr_);
     rx_->activate();
     // IpcAdapter에 post 함수 연결 (엔큐 시점 로깅)
     ipc_->set_command_post([this](const async::CommandEvent& ev){
-        LOG_DBG("ASYNC", "cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
+        LOG_FLOW("cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
         async_.post(ev);
     });
     // 방어적 재시작 허용
@@ -89,11 +92,12 @@ bool GatewayApp::start_server(const std::string &bind, uint16_t port) {
  * 내부적으로 IpcAdapter를 생성하고 클라이언트 모드로 시작
  */
 bool GatewayApp::start_client(const std::string &peer, uint16_t port) {
-    if (!ipc_) ipc_ = std::make_unique<IpcAdapter>(mgr_);
+    if (!mgr_iface_) mgr_iface_ = std::make_unique<DdsManagerAdapter>(mgr_);
+    if (!ipc_) ipc_ = std::make_unique<IpcAdapter>(*mgr_iface_);
     if (!rx_)  rx_  = async::create_receiver(rx_mode_, mgr_);
     rx_->activate();
     ipc_->set_command_post([this](const async::CommandEvent& ev){
-        LOG_DBG("ASYNC", "cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
+        LOG_FLOW("cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
         async_.post(ev);
     });
     if (!async_.is_running()) async_.start();

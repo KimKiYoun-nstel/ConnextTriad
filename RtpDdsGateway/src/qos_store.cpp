@@ -1,3 +1,13 @@
+/**
+ * @file qos_store.cpp
+ * @brief QoS 프로파일 로딩/캐시/동적 업데이트/상세 조회를 담당하는 QosStore 구현
+ *
+ * - 외부 XML 디렉토리에서 QosProvider를 로드하여 library::profile 목록을 구성
+ * - 요청된 library::profile의 QoS Pack을 캐싱하여 재사용
+ * - 런타임 제공 XML을 병합(동적 라이브러리)하여 즉시 적용 가능
+ * - 목록 및 상세(JSON) 조회를 제공하며, 상세는 필요 시 XML 스니펫을 포함
+ * - 로그 레벨 정책: 정상 흐름은 INFO/DEBUG, 오류는 ERROR, 폴백/재시도는 WARN 권장
+ */
 #include "qos_store.hpp"
 
 #include <algorithm>
@@ -25,13 +35,11 @@ using qos_xml::merge_profile_into_library;
 using qos_xml::parse_profiles_from_file;
 using qos_xml::qos_pack_to_profile_xml;
 
-// Previously cached missing builtin libs (removed - we now use QosProvider::Default())
+// (참고) 과거 누락된 builtin 라이브러리 캐시는 제거되었으며, 현재는 QosProvider::Default()를 사용한다.
 
-// Minimal summarizers for discovery/runtime fields.
-// IMPORTANT: avoid accessing implementation-specific QoS accessor members
-// (e.g. p.writer.reliability()) because RTI wrapper types vary by version
-// and may not expose those methods. Return empty objects as placeholders.
-// --- enum → string helpers ---
+// discovery/runtime 요약 헬퍼 (필요 시 활성화)
+// 주의: RTI 래퍼 타입은 버전에 따라 접근자가 다를 수 있어, 정책 접근은 가급적 공용 API만 사용한다.
+// 아래 enum→문자열 변환 헬퍼들은 요약 JSON을 만들 때 사용된다.
 static inline const char* to_str(dds::core::policy::ReliabilityKind k)
 {
     return (k == dds::core::policy::ReliabilityKind::RELIABLE) ? "RELIABLE" : "BEST_EFFORT";
@@ -157,7 +165,7 @@ static nlohmann::json summarize_runtime(const dds::pub::qos::DataWriterQos& w,
     return j;
 }
 
-// Collect all qos_lib helper names available via rti::core::builtin_profiles helpers
+// rti::core::builtin_profiles 헬퍼를 통해 사용 가능한 qos_lib 이름 수집
 static std::vector<std::string> collect_builtin_qos_lib_names()
 {
     std::vector<std::string> names;
@@ -169,7 +177,7 @@ static std::vector<std::string> collect_builtin_qos_lib_names()
         }
     };
 
-    // Fully-qualified calls wrapped in lambdas to handle potential missing symbols across RTI versions
+    // RTI 버전 간 누락 심볼 가능성을 고려해 람다로 감싸 안전 호출
     // try_push([](){ return rti::core::builtin_profiles::qos_lib::library_name(); });
     try_push([]() { return rti::core::builtin_profiles::qos_lib::baseline(); });
     try_push([]() { return rti::core::builtin_profiles::qos_lib::generic_common(); });
@@ -223,7 +231,7 @@ static std::vector<std::string> collect_builtin_qos_lib_names()
     try_push([](){ return rti::core::builtin_profiles::qos_lib::pattern_last_value_cache(); });
     */
 
-    // ensure unique
+    // 중복 제거 및 정렬
     std::sort(names.begin(), names.end());
     names.erase(std::unique(names.begin(), names.end()), names.end());
     return names;
@@ -233,6 +241,13 @@ QosStore::QosStore(std::string dir) : dir_(std::move(dir)) {}
 
 QosStore::~QosStore() = default;
 
+/**
+ * @brief 초기화: QoS 디렉토리 스캔 및 Provider 로드, 캐시 초기화
+ * @details
+ * - 내부적으로 `load_providers_from_dir_nothrow`로 XML 파일들을 로드합니다.
+ * - 기존 캐시를 비우고 `builtin_candidates_`를 수집하여 이후 조회 성능을 높입니다.
+ * - 실패해도 치명적 예외를 던지지 않으며 로그로 상태를 남깁니다.
+ */
 void QosStore::initialize()
 {
     try {
@@ -329,6 +344,14 @@ std::string QosStore::key(const std::string& lib, const std::string& profile)
     return lib + "::" + profile;
 }
 
+/**
+ * @brief 파일 기반 Provider들에서 지정한 library::profile을 찾아 QosPack 생성
+ * @details
+ * - providers_를 역순으로(마지막 로드 우선) 검사하여 해당 profile이 포함된 Provider를 찾습니다.
+ * - 캐시된 profile 목록(profiles)을 우선 확인하고, 파일이 변경되었으면 재파싱합니다.
+ * - RTI QosProvider에서 participant/publisher/.../reader QoS를 읽어 QosPack으로 반환합니다.
+ * - 찾지 못하면 nullopt를 반환합니다.
+ */
 std::optional<QosPack> QosStore::resolve_from_providers(const std::string& lib, const std::string& profile)
 {
     const std::string combined = lib + "::" + profile;
@@ -433,8 +456,10 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
             // log source xml (압축 형식)
             auto xml = extract_profile_xml(pack->origin_file, lib, profile);
             if (!xml.empty()) {
-                LOG_INF("DDS", "[qos-load] %s::%s from=%s\n%s", lib.c_str(), profile.c_str(), pack->origin_file.c_str(),
-                        compress_xml(xml).c_str());
+                // compressed XML can be large; emit only a one-line flow-level info and keep full XML at DEBUG
+                auto compressed = compress_xml(xml);
+                LOG_FLOW("[qos-load] %s::%s from=%s xml_size=%zu", lib.c_str(), profile.c_str(), pack->origin_file.c_str(), compressed.size());
+                LOG_DBG("DDS", "[qos-load:xml] %s::%s %s", lib.c_str(), profile.c_str(), compressed.c_str());
             } else {
                 LOG_WRN("DDS", "[qos-load] profile xml not found for %s::%s (file=%s)", lib.c_str(), profile.c_str(),
                         pack->origin_file.c_str());
@@ -454,8 +479,9 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
             cache_version_++;
             auto xml = extract_profile_xml(pack->origin_file, lib, profile);
             if (!xml.empty()) {
-                LOG_INF("DDS", "[qos-reload] %s::%s from=%s\n%s", lib.c_str(), profile.c_str(),
-                        pack->origin_file.c_str(), compress_xml(xml).c_str());
+                auto compressed = compress_xml(xml);
+                LOG_FLOW("[qos-reload] %s::%s from=%s xml_size=%zu", lib.c_str(), profile.c_str(), pack->origin_file.c_str(), compressed.size());
+                LOG_DBG("DDS", "[qos-reload:xml] %s::%s %s", lib.c_str(), profile.c_str(), compressed.c_str());
             }
             return pack;
         }
@@ -464,6 +490,12 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
     }
 }
 
+/**
+ * @brief 모든 Provider를 재로드하고 캐시를 무효화
+ * @details
+ * - 디렉토리를 다시 스캔하여 providers_를 갱신합니다.
+ * - 내부 캐시(cache_)를 비우고 cache_version_를 증가시켜 캐시 일관성을 보장합니다.
+ */
 void QosStore::reload_all()
 {
     std::unique_lock lk(mtx_);
@@ -474,6 +506,12 @@ void QosStore::reload_all()
             (unsigned long long)cache_version_);
 }
 
+/**
+ * @brief 파일에서 특정 library::profile의 XML 조각을 추출
+ * @details
+ * - 주어진 파일을 읽어 전체 XML 콘텐츠에서 `qos_profile` 블록을 찾아 반환합니다.
+ * - 실패 시 빈 문자열을 반환하고 경고 로그를 남깁니다.
+ */
 std::string QosStore::extract_profile_xml(const std::string& file_path, const std::string& lib,
                                           const std::string& profile)
 {
@@ -489,6 +527,13 @@ std::string QosStore::extract_profile_xml(const std::string& file_path, const st
 }
 
 // Return a sorted unique list of available profiles (dynamic, external, then builtin)
+/**
+ * @brief 사용 가능한 QoS 프로파일의 정렬된 유니크 리스트를 반환
+ * @param include_builtin 내장 프로파일 포함 여부
+ * @details
+ * - 우선 동적 프로파일(dynamic), 외부 파일 기반 프로파일, (옵션) 내장 후보 순으로 수집합니다.
+ * - 반환값은 "lib::profile" 형식의 문자열 벡터입니다.
+ */
 std::vector<std::string> QosStore::list_profiles(bool include_builtin) const
 {
     std::vector<std::string> out;
@@ -519,6 +564,14 @@ std::vector<std::string> QosStore::list_profiles(bool include_builtin) const
 // Build detail JSON as an ARRAY of entries aligned with list_profiles() order.
 // Each entry has the form: { "name": "lib::profile", "detail": { source_kind, xml } }
 // Optional: discovery/runtime JSON fields (currently commented out - enable if needed)
+/**
+ * @brief 프로파일에 대한 상세 JSON 배열을 반환
+ * @param include_builtin 내장 프로파일 포함 여부
+ * @return [{ "lib::profile": { "source_kind": "dynamic|external|builtin", "xml": "..." } }, ...]
+ * @details
+ * - 각 프로파일에 대해 effective QoS(데이터레이터/라이터/토픽 등)를 요약하고, 필요 시 XML 스니펫을 포함합니다.
+ * - 동적 프로파일은 우선적으로 처리되며, 외부 파일 기반 프로파일은 마지막 로드 우선 정책을 따릅니다.
+ */
 nlohmann::json QosStore::detail_profiles(bool include_builtin) const
 {
     // Build the detail map first (same as previous behavior), then convert to an array
@@ -647,6 +700,17 @@ nlohmann::json QosStore::detail_profiles(bool include_builtin) const
     return detail_arr;
 }
 
+/**
+ * @brief 런타임에 XML 문자열로부터 QoS 프로파일을 추가하거나 갱신
+ * @param library 라이브러리 이름
+ * @param profile 프로파일 이름
+ * @param profile_xml qos_profile 태그를 포함한 XML 스니펫
+ * @return 성공 시 full name("lib::profile"), 실패 시 빈 문자열
+ * @details
+ * - 기존 dynamic_libraries_에서 library의 XML을 찾아 병합하거나, 없으면 템플릿을 생성합니다.
+ * - 병합된 전체 XML로 QosProvider를 생성(str:// URI)하여 dynamic_providers_에 등록합니다.
+ * - 해당 프로파일을 dynamic_profiles_index_에 추가하고 캐시를 무효화합니다.
+ */
 std::string QosStore::add_or_update_profile(const std::string& library, 
                                              const std::string& profile, 
                                              const std::string& profile_xml)

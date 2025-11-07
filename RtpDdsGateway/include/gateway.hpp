@@ -14,6 +14,7 @@
 #include "dds_manager.hpp"
 #include "dds_type_registry.hpp"
 #include "ipc_adapter.hpp"
+#include "rtpdds/api/idds_manager.hpp"
 // async pipeline
 #include "async/async_event_processor.hpp"
 #include "async/sample_event.hpp"
@@ -43,6 +44,8 @@ public:
 
 private:
     DdsManager mgr_{};              ///< DDS 엔티티/샘플 관리
+    // 인터페이스 포인터: DdsManager 구현을 어댑터로 래핑하여 IpcAdapter에 전달
+    std::unique_ptr<IDdsManager> mgr_iface_{};
     std::unique_ptr<IpcAdapter> ipc_{}; ///< IPC 명령 변환/콜백 어댑터
     
     // 추가: DDS/IPC 이벤트를 처리할 소비자 스레드

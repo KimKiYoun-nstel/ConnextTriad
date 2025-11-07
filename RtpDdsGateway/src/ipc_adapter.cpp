@@ -2,30 +2,29 @@
  * @file ipc_adapter.cpp
  * @brief IpcAdapter 구현 파일
  *
- * UI에서 들어오는 명령을 받아 DdsManager API 호출 → 결과를 ACK/ERR로 응답.
- * DdsManager에서 수신한 샘플은 EVT_DATA로 UI에 전송.
- * 각 함수별로 파라미터/리턴/비즈니스 처리에 대한 상세 주석을 추가.
+ * UI에서 들어오는 명령을 받아 DdsManager API 호출 → 결과를 ACK/ERR로 응답한다.
+ * DdsManager에서 수신한 샘플은 EVT(DATA)로 UI에 전송한다.
+ * 각 함수별 파라미터/리턴/예외/로그 정책을 Doxygen 주석으로 기술한다.
  */
-#include "ipc_adapter.hpp"
-
-#include "dds_manager.hpp"
 #include "triad_log.hpp"
 #include "sample_factory.hpp"
-
-
+#include "ipc_adapter.hpp"
+#include "dds_manager.hpp"
 #include "type_registry.hpp"
+#include "dds_manager_internal.hpp"
 #include <nlohmann/json.hpp>
 #include <any>
 #include <vector>
 
 namespace rtpdds
 {
+using rtpdds::internal::truncate_for_log;
 
 /**
  * @brief DdsManager 참조로 어댑터 생성, 콜백 설치
  * @param mgr DDS 엔티티/샘플 관리 참조
  */
-IpcAdapter::IpcAdapter(DdsManager& mgr) : mgr_(mgr)
+IpcAdapter::IpcAdapter(IDdsManager& mgr) : mgr_(mgr)
 {
     install_callbacks();
 }
@@ -71,26 +70,26 @@ void IpcAdapter::stop()
 /**
  * @brief 내부 콜백 설치 (IPC 요청/응답/이벤트 처리)
  *
- * - on_request: UI에서 들어오는 JSON 기반 RPC 명령을 파싱하여 DdsManager API 호출, 결과를 CBOR로 응답
- * - set_on_sample: DDS 샘플 수신 시 EVT 프레임으로 UI에 전송
+ * - on_request: UI에서 수신한 CBOR(JSON) 기반 RPC를 파싱하여 DdsManager API로 위임하고, 결과를 CBOR로 응답한다.
+ * - 이벤트 전송: DDS 샘플 수신은 Gateway의 AsyncEventProcessor를 통해 비동기 EVT로 전송한다.
  */
 void IpcAdapter::install_callbacks()
 {
     dkmrtp::ipc::DkmRtpIpc::Callbacks cb{};
     // on_cmd_XX 관련 콜백 제거됨. REQ/RSP/EVT 구조만 남김.
 
-    // === Unified RPC Envelope (CBOR over IPC) ===
+    // === 통합 RPC Envelope (IPC 위 CBOR) ===
     cb.on_request = [this](const dkmrtp::ipc::Header& h, const uint8_t* body, uint32_t len) {
-        // 수신만 처리: 이벤트로 변환하여 post 콜백으로 전달
-        LOG_DBG("IPC", "on_request corr_id=%u size=%u", h.corr_id, len);
+        // 수신 프레임을 비동기 CommandEvent로 변환하여 소비자 스레드로 전달
+    LOG_FLOW("IPC on_request corr_id=%u size=%u", h.corr_id, len);
 
-        // Try to decode CBOR for flow logging (non-fatal)
+        // FLOW 로깅: CBOR를 JSON으로 시도 변환(비치명적)
         try {
             nlohmann::json j = nlohmann::json::from_cbor(body, body + len);
-            // IN flow log (yellow)
-            LOG_WRN("FLOW", "IN corr_id=%u msg=%s", h.corr_id, j.dump().c_str());
+            auto msg = j.dump();
+            LOG_FLOW("IN corr_id=%u msg=%s", h.corr_id, truncate_for_log(msg, 1024).c_str());
         } catch (...) {
-            LOG_WRN("FLOW", "IN corr_id=%u msg=<non-json/cbor payload size=%u>", h.corr_id, len);
+            LOG_FLOW("IN corr_id=%u msg=<non-json/cbor payload size=%u>", h.corr_id, len);
         }
 
         async::CommandEvent ev;
@@ -103,19 +102,19 @@ void IpcAdapter::install_callbacks()
             LOG_WRN("IPC", "command post is null, replying error corr_id=%u", h.corr_id);
             nlohmann::json rsp = {{"ok", false}, {"err", 7}, {"msg", "no command sink"}};
             auto out = nlohmann::json::to_cbor(rsp);
-            // OUT flow log for error response
-            LOG_WRN("FLOW", "OUT corr_id=%u rsp=%s", h.corr_id, rsp.dump().c_str());
+            // OUT flow log for error response (debug-level with truncation)
+            auto preview = rsp.dump();
+            LOG_FLOW("OUT corr_id=%u rsp=%s", h.corr_id, truncate_for_log(preview, 1024).c_str());
             ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, h.corr_id, out.data(), (uint32_t)out.size());
             return;
         }
         post_cmd_(ev);
     };
 
-    // NOTE: mgr_.set_on_sample is intentionally NOT installed here anymore.
-    // Gateway owns an AsyncEventProcessor and will post SampleEvent into it. The
-    // async consumer will call IpcAdapter::emit_evt_from_sample to perform the
-    // JSON->CBOR conversion and send the IPC frame. This keeps the DDS listener
-    // callback lightweight and non-blocking.
+    // 주의: mgr_.set_on_sample은 여기서 설치하지 않는다.
+    // Gateway가 AsyncEventProcessor를 소유하며, DDS 수신 샘플은 비동기 큐로 전달된다.
+    // 소비자 스레드가 IpcAdapter::emit_evt_from_sample을 호출하여 JSON→CBOR 변환 및 IPC 전송을 수행한다.
+    // 이를 통해 DDS 리스너 콜백은 경량/논블로킹으로 유지된다.
 
     ipc_.set_callbacks(cb);
 }
@@ -127,7 +126,7 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
     const std::string& type_name = ev.type_name;
     const AnyData& data = ev.data;
 
-    LOG_DBG("IPC", "evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
+    LOG_FLOW("IPC evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
 
     nlohmann::json data_json;
 
@@ -152,20 +151,21 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
         // "display" field in the EVT payload. The EVT carries the full JSON object
         // in the "data" field per protocol (object-first).
         auto preview = data_json.dump();
-        if (preview.size() > 2048) preview.resize(2048);
-        LOG_DBG("IPC", "data json preview=%s", preview.c_str());
+    if (preview.size() > 2048) preview.resize(2048);
+    LOG_DBG("IPC", "data json preview=%s", preview.c_str());
     }
 
     nlohmann::json evt = {{"evt", "data"}, {"topic", topic}, {"type", type_name}, {"data", data_json}};
     LOG_INF("IPC", "send EVT topic=%s type=%s", topic.c_str(), type_name.c_str());
 
     auto out = nlohmann::json::to_cbor(evt);
-    // OUT flow log for event
-    LOG_WRN("FLOW", "OUT evt topic=%s type=%s evt=%s", topic.c_str(), type_name.c_str(), evt.dump().c_str());
+    // OUT flow log for event (debug-level, truncated)
+    auto evt_preview = evt.dump();
+    LOG_FLOW("OUT evt topic=%s type=%s evt=%s", topic.c_str(), type_name.c_str(), truncate_for_log(evt_preview, 1024).c_str());
     ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
 }
 
-// Build structured capability list used in hello response.
+// hello 응답에 사용되는 기능(capability) 목록을 구조적으로 생성한다.
 static nlohmann::json build_hello_capabilities()
 {
     nlohmann::json caps = nlohmann::json::array();
@@ -307,18 +307,18 @@ static nlohmann::json build_hello_capabilities()
     return caps;
 }
 
-// set the post function used to forward CommandEvent into the gateway async queue
+// CommandEvent를 게이트웨이 비동기 큐로 전달하기 위한 post 함수 설정
 void IpcAdapter::set_command_post(std::function<void(const async::CommandEvent&)> f) {
     post_cmd_ = std::move(f);
     LOG_INF("IPC", "command post installed");
 }
 
 
-// process_request: called from consumer thread to actually handle command
+// process_request: 소비자 스레드에서 호출되어 명령을 실제 처리한다.
 void IpcAdapter::process_request(const async::CommandEvent& ev) {
     const auto t0 = std::chrono::steady_clock::now();
-    LOG_DBG("IPC", "process_request corr_id=%u size=%zu route=%s",
-            ev.corr_id, ev.body.size(), ev.route.c_str());
+    LOG_FLOW("IPC process_request corr_id=%u size=%zu route=%s",
+        ev.corr_id, ev.body.size(), ev.route.c_str());
 
     nlohmann::json rsp;
 
@@ -327,12 +327,12 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         const std::string op = req.value("op", "");
         const auto target = req.value("target", nlohmann::json::object());
         const std::string kind = target.value("kind", std::string());
-        const std::string target_str = target.dump();
-        LOG_DBG("IPC", "req op=%s kind=%s target=%s", op.c_str(), kind.c_str(), target_str.c_str());
+    const std::string target_str = target.dump();
+    LOG_FLOW("IPC req op=%s kind=%s target=%s", op.c_str(), kind.c_str(), truncate_for_log(target_str, 512).c_str());
 
         bool ok = false;
 
-        // Small helper lambdas to keep each branch focused and readable.
+    // 분기 가독성을 위한 소규모 헬퍼 람다들
         auto do_clear = [&]() {
             mgr_.clear_entities();
             rsp = { {"ok", true}, {"result", {{"action", "dds entities cleared"}}} };
@@ -348,8 +348,8 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-            LOG_DBG("IPC", "Calling DdsManager::create_participant(domain=%d, lib=%s, prof=%s)", domain,
-                    lib.c_str(), prof.c_str());
+        LOG_FLOW("Calling DdsManager::create_participant(domain=%d, lib=%s, prof=%s)", domain,
+            lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_participant(domain, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "participant created: domain=%d qos=%s", domain, qos.c_str());
@@ -372,8 +372,8 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-            LOG_DBG("IPC", "Calling DdsManager::create_publisher(domain=%d, pub=%s, lib=%s, prof=%s)", domain,
-                    pub.c_str(), lib.c_str(), prof.c_str());
+        LOG_FLOW("Calling DdsManager::create_publisher(domain=%d, pub=%s, lib=%s, prof=%s)", domain,
+            pub.c_str(), lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_publisher(domain, pub, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "publisher created: domain=%d pub=%s qos=%s", domain, pub.c_str(), qos.c_str());
@@ -396,8 +396,8 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-            LOG_DBG("IPC", "Calling DdsManager::create_subscriber(domain=%d, sub=%s, lib=%s, prof=%s)", domain,
-                    sub.c_str(), lib.c_str(), prof.c_str());
+        LOG_FLOW("Calling DdsManager::create_subscriber(domain=%d, sub=%s, lib=%s, prof=%s)", domain,
+            sub.c_str(), lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_subscriber(domain, sub, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "subscriber created: domain=%d sub=%s qos=%s", domain, sub.c_str(), qos.c_str());
@@ -426,9 +426,9 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 LOG_ERR("IPC", "writer creation failed: missing topic or type tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
             } else {
-                LOG_DBG("IPC",
-                        "Calling DdsManager::create_writer(domain=%d, pub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
-                        domain, pub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
+        LOG_FLOW(
+            "Calling DdsManager::create_writer(domain=%d, pub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
+            domain, pub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
                 uint64_t holder_id = 0;
                 DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
@@ -461,9 +461,9 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 LOG_ERR("IPC", "reader creation failed: missing topic or type tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
             } else {
-                LOG_DBG("IPC",
-                        "Calling DdsManager::create_reader(domain=%d, sub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
-                        domain, sub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
+        LOG_FLOW(
+            "Calling DdsManager::create_reader(domain=%d, sub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
+            domain, sub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
                 uint64_t holder_id = 0;
                 DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
@@ -495,7 +495,10 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 return;
             }
             nlohmann::json data_json = req["data"];
-            LOG_DBG("IPC", "Calling DdsManager::publish_json(topic=%s, data=%s)", topic.c_str(), data_json.dump().c_str());
+            {
+                auto data_preview = data_json.dump();
+                LOG_DBG("IPC", "Calling DdsManager::publish_json(topic=%s, data=%s)", topic.c_str(), truncate_for_log(data_preview, 512).c_str());
+            }
             DdsResult res = mgr_.publish_json(topic, data_json);
             if (res.ok) {
                 LOG_INF("IPC", "publish_json ok: topic=%s", topic.c_str());
@@ -509,7 +512,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         };
 
         auto do_hello = [&]() {
-            LOG_DBG("IPC", "Received hello op");
+            LOG_FLOW("Received hello op");
             ok = true;
             rsp = nlohmann::json::object();
             rsp["ok"] = true;
@@ -520,7 +523,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
 
         auto do_get = [&]() {
             if (kind != "qos") return;
-            LOG_DBG("IPC", "Received get qos request");
+            LOG_FLOW("Received get qos request");
             try {
                 // args are optional booleans
                 bool include_builtin = false;
@@ -529,7 +532,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                     include_builtin = req["args"].value("include_builtin", false);
                     include_detail = req["args"].value("detail", false);
                 }
-                LOG_DBG("IPC", "get.qos: include_builtin=%d include_detail=%d", include_builtin, include_detail);
+                LOG_FLOW("get.qos: include_builtin=%d include_detail=%d", include_builtin, include_detail);
 
                 auto json_out = mgr_.list_qos_profiles(include_builtin, include_detail);
                 // ensure result field present (must be returned)
@@ -541,9 +544,9 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 if (include_detail) {
                     // include detail only when requested; manager returns an array now
                     rsp["detail"] = json_out.value("detail", nlohmann::json::array());
-                    LOG_DBG("IPC", "get.qos: including detail entries=%zu", rsp["detail"].size());
+                    LOG_FLOW("get.qos: including detail entries=%zu", rsp["detail"].size());
                 } else {
-                    LOG_DBG("IPC", "get.qos: detail not requested - omitted from response");
+                    LOG_FLOW("get.qos: detail not requested - omitted from response");
                 }
                 ok = true;
             } catch (const std::exception& ex) {
@@ -554,7 +557,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
 
         auto do_set_qos = [&]() {
             // QoS Profile 동적 추가/업데이트
-            // 요청: { "op": "set", "target": { "kind": "qos" }, "data": { "library": "...", "profile": "...", "xml": "..." } }
+            // 요청 형식: { "op": "set", "target": { "kind": "qos" }, "data": { "library": "...", "profile": "...", "xml": "..." } }
             if (!req.contains("data") || !req["data"].is_object()) {
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object for set.qos"} };
                 return;
@@ -587,7 +590,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
             };
         };
 
-        // Dispatch by op
+    // op 기준 디스패치
         if (op == "clear" && kind == "dds_entities") {
             do_clear();
         } else if (op == "create") {
@@ -605,8 +608,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         } else if (op == "set" && kind == "qos") {
             do_set_qos();
         }
-        // NOTE: For brevity, other branches (publisher/subscriber/writer/reader/write/hello) should be
-        // moved here similarly from the previous on_request implementation.
+    // 참고: 기타 분기(생성/쓰기/hello 등)는 위와 동일한 패턴으로 이곳에서 처리한다.
 
         if (!ok && rsp.empty()) rsp = {{"ok", false}, {"err", 4}, {"msg", "unsupported or failed"}};
     } catch (const std::exception& ex) {
@@ -614,11 +616,12 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         rsp = {{"ok", false}, {"err", 7}, {"msg", "json/cbor error"}};
     }
 
-    // OUT flow log for response
+    // OUT flow log for response (debug-level with truncation)
     try {
-        LOG_WRN("FLOW", "OUT corr_id=%u rsp=%s", ev.corr_id, rsp.dump().c_str());
+        auto rsp_preview = rsp.dump();
+    LOG_FLOW("OUT corr_id=%u rsp=%s", ev.corr_id, truncate_for_log(rsp_preview, 1024).c_str());
     } catch (...) {
-        LOG_WRN("FLOW", "OUT corr_id=%u rsp=<non-json or too large>", ev.corr_id);
+    LOG_FLOW("OUT corr_id=%u rsp=<non-json>", ev.corr_id);
     }
     auto out = nlohmann::json::to_cbor(rsp);
     ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
