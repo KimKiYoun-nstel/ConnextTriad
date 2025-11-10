@@ -1,3 +1,7 @@
+/**
+ * @file async_event_processor.hpp
+ * @brief 샘플/명령/에러 이벤트를 비동기 큐로 처리하는 워커 스레드 컴포넌트
+ */
 #pragma once
 #include <atomic>
 #include <chrono>
@@ -16,6 +20,14 @@ namespace rtpdds
 namespace async
 {
 
+/**
+ * @class AsyncEventProcessor
+ * @brief 비동기 이벤트(샘플/명령/에러) 처리 큐와 워커를 제공하는 컴포넌트
+ *
+ * - post()로 작업을 큐잉하고, 내부 worker 스레드가 순차 처리합니다.
+ * - monitor 스레드는 주기적으로 통계를 출력합니다(옵션).
+ * - stop() 시 drain_stop 설정에 따라 큐 드레인 또는 즉시 종료합니다.
+ */
 class AsyncEventProcessor
 {
    public:
@@ -103,6 +115,9 @@ class AsyncEventProcessor
         });
     }
 
+    /**
+     * @brief 처리 통계 스냅샷
+     */
     struct Stats {
         uint64_t enq_sample, enq_cmd, enq_err, exec_jobs, dropped;
         size_t max_depth, cur_depth;
@@ -119,11 +134,15 @@ class AsyncEventProcessor
                 q_.size()};
     }
 
+    /** @brief worker가 실행 중인지 여부 */
     bool is_running() const;
 
    private:
+    /** @brief 내부 큐에 작업을 추가(드롭 정책 포함) */
     void enqueue(std::function<void()> fn);
+    /** @brief worker 스레드 루프 */
     void loop();
+    /** @brief 모니터 스레드 루프(주기 통계 로그) */
     void monitor_loop();
 
     // 상태
