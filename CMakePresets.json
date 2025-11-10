@@ -3,40 +3,105 @@
   "configurePresets": [
     {
       "name": "vs2022-ninja",
+      "description": "Base: Windows Ninja generator with vcpkg toolchain",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_TOOLCHAIN_FILE": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows",
         "BUILD_UI": "OFF"
       }
     },
     {
+      "name": "vs2022-ninja-debug",
+      "inherits": "vs2022-ninja",
+      "description": "Windows Ninja (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "vs2022-ninja-release",
+      "inherits": "vs2022-ninja",
+      "description": "Windows Ninja (Release)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+
+    {
+      "name": "linux-ninja",
+      "description": "Base: Linux Ninja generator (gcc/g++)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_UI": "OFF",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    {
+      "name": "linux-ninja-debug",
+      "inherits": "linux-ninja",
+      "description": "Linux Ninja (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-ninja-release",
+      "inherits": "linux-ninja",
+      "description": "Linux Ninja (Release)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+
+    {
       "name": "vs2022-msvc",
+      "description": "Visual Studio 17 2022 generator with vcpkg toolchain (multi-config)",
       "generator": "Visual Studio 17 2022",
       "binaryDir": "${sourceDir}/out/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
         "VCPKG_TARGET_TRIPLET": "x64-windows",
         "BUILD_UI": "OFF"
       }
     }
   ],
+
   "buildPresets": [
     {
-      "name": "build-ninja",
-      "configurePreset": "vs2022-ninja"
-    },
-    {
-      "name": "build-msvc",
-      "configurePreset": "vs2022-msvc"
+      "name": "build-msvc-debug",
+      "description": "Build on Windows using Visual Studio (Debug)",
+      "configurePreset": "vs2022-msvc",
+      "configuration": "Debug"
     },
     {
       "name": "build-msvc-release",
+      "description": "Build on Windows using Visual Studio (Release)",
       "configurePreset": "vs2022-msvc",
       "configuration": "Release"
+    },
+    {
+      "name": "build-ninja-win-debug",
+      "description": "Build on Windows using Ninja (Debug)",
+      "configurePreset": "vs2022-ninja-debug"
+    },
+    {
+      "name": "build-ninja-win-release",
+      "description": "Build on Windows using Ninja (Release)",
+      "configurePreset": "vs2022-ninja-release"
+    },
+    {
+      "name": "build-ninja-linux-debug",
+      "description": "Build on Linux using Ninja (Debug)",
+      "configurePreset": "linux-ninja-debug"
+    },
+    {
+      "name": "build-ninja-linux-release",
+      "description": "Build on Linux using Ninja (Release)",
+      "configurePreset": "linux-ninja-release"
     }
   ]
 }

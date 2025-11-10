@@ -1,5 +1,7 @@
-// Copyright (c) 2025 NSTEL Inc.
-// QoS XML 변환 및 처리 유틸리티 함수 구현
+/**
+ * @file qos_xml_helpers.cpp
+ * @brief QoS XML 변환/파싱/병합 유틸 구현
+ */
 
 #include "qos_xml_helpers.hpp"
 

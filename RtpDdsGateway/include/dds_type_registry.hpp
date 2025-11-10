@@ -33,7 +33,7 @@ void init_dds_type_registry();
 // Topic Holder: 토픽 객체를 타입 안전하게 보관/관리하기 위한 추상 인터페이스
 struct ITopicHolder {
     virtual ~ITopicHolder() = default;
-    virtual void set_qos(const dds::topic::qos::TopicQos& q) {}
+    virtual void set_qos(const dds::topic::qos::TopicQos& /*q*/) {}
 };
 
 /**
@@ -56,7 +56,7 @@ struct IWriterHolder {
      * @throws std::bad_any_cast 타입 불일치 시 예외
      */
     virtual void write_any(const AnyData& data) = 0;
-    virtual void set_qos(const dds::pub::qos::DataWriterQos& q) {}
+    virtual void set_qos(const dds::pub::qos::DataWriterQos& /*q*/) {}
 };
 
 /**
@@ -104,11 +104,11 @@ struct WriterHolder : public IWriterHolder {
                 throw std::bad_any_cast();
             }
 
-            LOG_DBG("WriterHolder", "write_any: data cast successful. Writing data to writer.");
+            LOG_FLOW("write_any: data cast successful. Writing data to writer.");
 
             // RTI writer 호출
             writer->write(*typed_data);
-            LOG_DBG("WriterHolder", "write_any: write successful.");
+            LOG_FLOW("write_any: write successful.");
         } catch (const std::bad_any_cast& e) {
             LOG_ERR("WriterHolder", "write_any: bad_any_cast exception: %s", e.what());
             throw std::runtime_error("WriterHolder: bad_any_cast for type " + dds::topic::topic_type_name<T>::value() +
@@ -166,7 +166,7 @@ struct IReaderHolder {
 
     // 나중에 샘플 콜백 세팅
     virtual void set_sample_callback(SampleCallback cb) = 0;
-    virtual void set_qos(const dds::sub::qos::DataReaderQos& q) {}
+    virtual void set_qos(const dds::sub::qos::DataReaderQos& /*q*/) {}
 };
 
 /**

@@ -1,0 +1,169 @@
+{
+    "meta": {
+        "name": "scenario1_simple_connect_create_pubsub",
+        "description": "udp 연결 -> hello -> get.qos -> create participant/publisher/subscriber/writer/reader -> write -> wait evt"
+    },
+    "steps": [
+        {
+            "name": "clear_dds",
+            "type": "request",
+            "body": {
+                "op": "clear",
+                "target": {
+                    "kind": "dds_entities"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "hello",
+            "type": "request",
+            "body": {
+                "op": "hello"
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "get_qos",
+            "type": "request",
+            "body": {
+                "op": "get",
+                "target": {
+                    "kind": "qos"
+                },
+                "args": {
+                    "include_builtin": true,
+                    "detail": false
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "create_participant",
+            "type": "request",
+            "body": {
+                "op": "create",
+                "target": {
+                    "kind": "participant"
+                },
+                "args": {
+                    "domain": 0
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "create_publisher",
+            "type": "request",
+            "body": {
+                "op": "create",
+                "target": {
+                    "kind": "publisher"
+                },
+                "args": {
+                    "domain": 0,
+                    "publisher": "pub1"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "create_subscriber",
+            "type": "request",
+            "body": {
+                "op": "create",
+                "target": {
+                    "kind": "subscriber"
+                },
+                "args": {
+                    "domain": 0,
+                    "subscriber": "sub1"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "create_writer",
+            "type": "request",
+            "body": {
+                "op": "create",
+                "target": {
+                    "kind": "writer",
+                    "topic": "chat",
+                    "type": "C_StringMsg"
+                },
+                "args": {
+                    "domain": 0,
+                    "publisher": "pub1"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "create_reader",
+            "type": "request",
+            "body": {
+                "op": "create",
+                "target": {
+                    "kind": "reader",
+                    "topic": "chat",
+                    "type": "C_StringMsg"
+                },
+                "args": {
+                    "domain": 0,
+                    "subscriber": "sub1"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "publish_sample",
+            "type": "request",
+            "body": {
+                "op": "write",
+                "target": {
+                    "kind": "writer",
+                    "topic": "chat"
+                },
+                "data": {
+                    "text": "Hello world from scenario1"
+                }
+            },
+            "expect": {
+                "ok": true
+            },
+            "post_delay": 1.0
+        },
+        {
+            "name": "wait_evt_chat",
+            "type": "wait_evt",
+            "topic": "chat",
+            "msg_type": "C_StringMsg",
+            "timeout": 5.0
+        }
+    ]
+}

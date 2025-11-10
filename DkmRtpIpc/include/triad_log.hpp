@@ -11,7 +11,9 @@
 
 namespace triad {
 
-    enum class Lvl { Debug = 0, Info = 1, Warn = 2, Error = 3 };
+    // 레벨 순서(숫자가 작을수록 더 상세한 로그)
+    // 우선순위(가장 상세 -> 가장 심각): Debug(0) > Info(1) > Trace(2) > Warn(3) > Error(4)
+    enum class Lvl { Debug = 0, Info = 1, Trace = 2, Warn = 3, Error = 4 };
 
     inline int &g_level() {
         static int v = (int)Lvl::Info;
@@ -32,6 +34,8 @@ namespace triad {
             return "DBG";
         case Lvl::Info:
             return "INF";
+        case Lvl::Trace:
+            return "TRC";
         case Lvl::Warn:
             return "WRN";
         default:
@@ -45,6 +49,8 @@ namespace triad {
             return "\033[90m"; // 회색
         case Lvl::Info:
             return "\033[0m";  // 기본색
+        case Lvl::Trace:
+            return "\033[36m"; // 청록 (trace 한 줄 로그 강조)
         case Lvl::Warn:
             return "\033[33m"; // 노란색
         case Lvl::Error:
@@ -81,8 +87,13 @@ namespace triad {
 
         auto now = std::chrono::system_clock::now();
         std::time_t tt = std::chrono::system_clock::to_time_t(now);
-        std::tm tm;
-        localtime_s(&tm, &tt);
+    std::tm tm;
+#if defined(_WIN32) || defined(_WIN64)
+    localtime_s(&tm, &tt);
+#else
+    // POSIX: use localtime_r
+    localtime_r(&tt, &tm);
+#endif
         char ts[32];
         std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
 
@@ -111,3 +122,13 @@ namespace triad {
     ::triad::logf(::triad::Lvl::Warn, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define LOG_ERR(tag, fmt, ...)                                                 \
     ::triad::logf(::triad::Lvl::Error, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+
+// 운영용 한줄 요약 로그: 사용자의 정의에 따라 TRACE는 INFO보다 낮은 상세도(간결한 운영 레벨)
+#define LOG_TRC(tag, fmt, ...)                                                 \
+    ::triad::logf(::triad::Lvl::Trace, tag, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+
+// FLOW 전용 간편 매크로: 운영용 한줄 요약 로그를 찍을 때 사용합니다.
+// 기존 코드에서 `LOG_TRC("FLOW", ...)`을 사용하는 대신 `LOG_FLOW(...)`로
+// 표기하면 더 의도를 드러낼 수 있고, 향후 포맷 변경이 쉬워집니다.
+#define LOG_FLOW(fmt, ...)                                                     \
+    ::triad::logf(::triad::Lvl::Trace, "FLOW", __FILE__, __LINE__, fmt, ##__VA_ARGS__)

@@ -18,7 +18,12 @@ static inline void forward_to_triad(const rti::config::LogMessage& m)
     }
 }
 
-void rtpdds::InitRtiLoggerToTriad()
+// 이 함수 선언 변경 이유:
+// 원래 파일 범위에서 "void rtpdds::InitRtiLoggerToTriad()" 형태로 명시적으로 네임스페이스를
+// 사용했는데, GCC(및 일부 컴파일러)는 네임스페이스 블록 내부에서 함수 선언에 명시적 한정자를
+// 허용하지 않습니다. 동작(로깅 브릿지 설정)은 변경하지 않으므로 플랫폼별 동작은 보존됩니다.
+// Windows 빌드와의 호환성은 유지됩니다. (윈도우 전용 코드 변경은 없습니다.)
+void InitRtiLoggerToTriad()
 {
     auto& lg = Logger::instance();
 

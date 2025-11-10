@@ -39,6 +39,7 @@ if(NOT DEFINED RTI_LIB_DIR)
     "$ENV{NDDSHOME}/lib/x64Win64VS2019"
     "$ENV{NDDSHOME}/lib/x64Win64VS2022"
     "$ENV{NDDSHOME}/lib/x64Win64"
+    "$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0"
   )
   foreach(d ${_rti_candidates})
     if(EXISTS "${d}")
@@ -50,7 +51,7 @@ endif()
 
 # if empty or not found, fail with a clear message
 if(NOT RTI_LIB_DIR)
-  message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR=<path> or verify NDDSHOME.")
+  message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR=<path> or verify NDDSHOME (example: -DRTI_LIB_DIR=$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0).")
 endif()
 
 message(STATUS "Using RTI_LIB_DIR=${RTI_LIB_DIR}")
@@ -74,7 +75,12 @@ target_link_libraries(RtpDdsCore PUBLIC
 
 
 add_executable(RtpDdsGateway src/main.cpp)
-target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32)
+# On Windows we need ws2_32; on Unix systems skip the Windows-only lib.
+if(WIN32)
+  target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32)
+else()
+  target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore)
+endif()
 
 # 실행 폴더에 XML 복사 (게이트웨이가 런타임에 XML 읽을 경우)
 add_dependencies(RtpDdsGateway idl_xml)

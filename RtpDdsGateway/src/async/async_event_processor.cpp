@@ -6,6 +6,13 @@
 
 namespace rtpdds { namespace async {
 
+// 보조 생성자 추가 이유:
+// 헤더에서 기본 인자를 Config()로 쓰는 대신, 컴파일러 간의 초기화/멤버 이니셜라이저
+// 처리 차이를 회피하기 위해 여기서 기본 생성자를 추가하고 Config를 위임합니다.
+// 이 변경은 Linux/GCC에서의 빌드 호환성을 높이기 위한 것이며, 기존 동작(구성 전달)은
+// 그대로 유지됩니다.
+AsyncEventProcessor::AsyncEventProcessor() : AsyncEventProcessor(Config()) {}
+
 AsyncEventProcessor::AsyncEventProcessor(const Config& cfg) : cfg_(cfg) {}
 
 AsyncEventProcessor::~AsyncEventProcessor()
