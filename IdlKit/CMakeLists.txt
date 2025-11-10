@@ -110,11 +110,15 @@ target_include_directories(DdsTypes PUBLIC ${GEN_DIR}
                                      PRIVATE "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp" "${CMAKE_SOURCE_DIR}/third_party" "${CMAKE_SOURCE_DIR}/RtpDdsGateway/include")
 target_compile_definitions(DdsTypes PRIVATE NDDS_DLL_VARIABLE)
 
-# Linux/Unix build: ensure RTI platform macros are set so RTI headers
-# select the correct OS-specific definitions when compiling generated code.
-# This is a conservative, local compile-definition only for the generated
-# types library and is reversible.
-target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
+if(WIN32)
+else()
+    # Linux/Unix build: ensure RTI platform macros are set so RTI headers
+    # select the correct OS-specific definitions when compiling generated code.
+    # This is a conservative, local compile-definition only for the generated
+    # types library and is reversible.
+    target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
+endif()
+
 
 # GEN_DIR과 install TU 경로를 export
 set_property(TARGET DdsTypes PROPERTY IDL_GEN_DIR "${GEN_DIR}")

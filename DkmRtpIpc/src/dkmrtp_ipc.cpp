@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file dkmrtp_ipc.cpp
  * ### 파일 설명(한글)
  * DkmRtpIpc 구현 파일.
@@ -29,7 +29,6 @@
 using SOCKET = int;
 constexpr SOCKET INVALID_SOCKET = -1;
 constexpr int SOCKET_ERROR = -1;
-#endif
 
 // 64-bit 호스트<->네트워크 바이트오더 변환(일부 플랫폼에 htonll/ntohll가 없음)
 #ifndef HAVE_HTONLL
@@ -44,6 +43,8 @@ static inline uint64_t htonll(uint64_t x) { return x; }
 static inline uint64_t ntohll(uint64_t x) { return x; }
 #endif
 #endif
+#endif
+
 namespace dkmrtp {
     namespace ipc {
     static uint64_t now_ns() {
