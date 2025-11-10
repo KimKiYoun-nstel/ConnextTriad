@@ -4,11 +4,30 @@ project(IdlKit)
 find_package(Python3 REQUIRED)
 
 # rtiddsgen 경로
-set(RTIDDSGEN_EXECUTABLE "$ENV{NDDSHOME}/bin/rtiddsgen.bat" CACHE FILEPATH "rtiddsgen path")
-if(NOT EXISTS "${RTIDDSGEN_EXECUTABLE}")
-  message(FATAL_ERROR "Set NDDSHOME or RTIDDSGEN_EXECUTABLE")
+# 플랫폼에 따라 rtiddsgen(.bat) 또는 rtiddsgen 실행파일을 자동으로 탐색합니다.
+# 우선 환경변수 RTIDDSGEN_EXECUTABLE이 제공되면 그것을 사용하고, 그렇지 않으면
+# NDDSHOME/bin 아래에서 검색합니다. Windows와 Unix를 모두 지원하도록 구성합니다.
+
+if(NOT DEFINED RTIDDSGEN_EXECUTABLE OR RTIDDSGEN_EXECUTABLE STREQUAL "")
+  if(DEFINED ENV{NDDSHOME})
+    set(RTI_SEARCH_PATH "$ENV{NDDSHOME}/bin")
+  else()
+    set(RTI_SEARCH_PATH "")
+  endif()
+  # try to find either rtiddsgen (unix) or rtiddsgen.bat (windows)
+  find_program(_FOUND_RTIDD GEN_NAMES rtiddsgen rtiddsgen.bat PATHS ${RTI_SEARCH_PATH})
+  # Above line is a workaround placeholder; use a proper find_program below.
+  find_program(RTIDDSGEN_EXECUTABLE NAMES rtiddsgen rtiddsgen.bat PATHS ${RTI_SEARCH_PATH})
+  if(RTIDDSGEN_EXECUTABLE)
+    set(RTIDDSGEN_EXECUTABLE "${RTIDDSGEN_EXECUTABLE}" CACHE FILEPATH "rtiddsgen path")
+  endif()
 endif()
-message(WARNING "${RTIDDSGEN_EXECUTABLE}")
+
+if(NOT RTIDDSGEN_EXECUTABLE)
+  message(FATAL_ERROR "Set NDDSHOME or RTIDDSGEN_EXECUTABLE")
+else()
+  message(STATUS "RTIDDSGEN executable: ${RTIDDSGEN_EXECUTABLE}")
+endif()
 
 # 경로
 set(IDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/idl)
@@ -90,6 +109,12 @@ add_dependencies(DdsTypes idl_cpp idl_xml idl_type_registry idl_json_bind)
 target_include_directories(DdsTypes PUBLIC ${GEN_DIR}
                                      PRIVATE "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp" "${CMAKE_SOURCE_DIR}/third_party" "${CMAKE_SOURCE_DIR}/RtpDdsGateway/include")
 target_compile_definitions(DdsTypes PRIVATE NDDS_DLL_VARIABLE)
+
+# Linux/Unix build: ensure RTI platform macros are set so RTI headers
+# select the correct OS-specific definitions when compiling generated code.
+# This is a conservative, local compile-definition only for the generated
+# types library and is reversible.
+target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
 
 # GEN_DIR과 install TU 경로를 export
 set_property(TARGET DdsTypes PROPERTY IDL_GEN_DIR "${GEN_DIR}")

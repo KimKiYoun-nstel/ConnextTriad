@@ -5,7 +5,15 @@
       "name": "vs2022-ninja-user",
       "inherits": "vs2022-ninja",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug" // 필요 시 사용자 오버라이드만
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_TOOLCHAIN_FILE": ""
+      }
+    },
+    {
+      "name": "linux-ninja-user",
+      "inherits": "linux-ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
       }
     },
     {

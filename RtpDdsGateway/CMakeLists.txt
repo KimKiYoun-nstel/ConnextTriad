@@ -74,7 +74,12 @@ target_link_libraries(RtpDdsCore PUBLIC
 
 
 add_executable(RtpDdsGateway src/main.cpp)
-target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32)
+# On Windows we need ws2_32; on Unix systems skip the Windows-only lib.
+if(WIN32)
+  target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore ws2_32)
+else()
+  target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore)
+endif()
 
 # 실행 폴더에 XML 복사 (게이트웨이가 런타임에 XML 읽을 경우)
 add_dependencies(RtpDdsGateway idl_xml)

@@ -41,7 +41,9 @@ class AsyncEventProcessor
      *
      * 스레드 안전성: post()/set_*_handler()는 내부 락으로 보호됩니다.
      */
-    explicit AsyncEventProcessor(const Config& cfg = {});
+    // 기본 생성자는 기본 설정을 사용합니다.
+    explicit AsyncEventProcessor();
+    explicit AsyncEventProcessor(const Config& cfg);
     ~AsyncEventProcessor();
 
     /** @brief 내부 worker와 모니터 스레드를 시작합니다. */

@@ -81,8 +81,13 @@ namespace triad {
 
         auto now = std::chrono::system_clock::now();
         std::time_t tt = std::chrono::system_clock::to_time_t(now);
-        std::tm tm;
-        localtime_s(&tm, &tt);
+    std::tm tm;
+#if defined(_WIN32) || defined(_WIN64)
+    localtime_s(&tm, &tt);
+#else
+    // POSIX: use localtime_r
+    localtime_r(&tt, &tm);
+#endif
         char ts[32];
         std::strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
 

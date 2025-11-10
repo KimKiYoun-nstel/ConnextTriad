@@ -8,60 +8,115 @@
 #include "dkmrtp_ipc.hpp"
 #include <chrono>
 #include <cstring>
+// 플랫폼별 소켓 포함 및 보조 정의
 #define WIN32_LEAN_AND_MEAN
-#include <winsock2.h>
-#include <ws2tcpip.h>
-#pragma comment(lib, "ws2_32.lib")
+#ifdef _WIN32
+#  include <winsock2.h>
+#  include <ws2tcpip.h>
+#  pragma comment(lib, "ws2_32.lib")
+#else
+#  include <arpa/inet.h>
+#  include <unistd.h>
+#  include <fcntl.h>
+#  include <netdb.h>
+#  include <sys/types.h>
+#  include <sys/socket.h>
+#  include <netinet/in.h>
+#endif
+
+// 타입/상수 매핑: 원래 Windows 코드에서 사용하던 SOCKET/INVALID_SOCKET/SOCKET_ERROR
+#ifndef _WIN32
+using SOCKET = int;
+constexpr SOCKET INVALID_SOCKET = -1;
+constexpr int SOCKET_ERROR = -1;
+#endif
+
+// 64-bit 호스트<->네트워크 바이트오더 변환(일부 플랫폼에 htonll/ntohll가 없음)
+#ifndef HAVE_HTONLL
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+static inline uint64_t htonll(uint64_t x) {
+    return (((uint64_t)htonl((uint32_t)(x & 0xFFFFFFFFULL))) << 32) |
+           (uint32_t)htonl((uint32_t)(x >> 32));
+}
+static inline uint64_t ntohll(uint64_t x) { return htonll(x); }
+#else
+static inline uint64_t htonll(uint64_t x) { return x; }
+static inline uint64_t ntohll(uint64_t x) { return x; }
+#endif
+#endif
 namespace dkmrtp {
     namespace ipc {
-        static uint64_t now_ns() {
+    static uint64_t now_ns() {
             using namespace std::chrono;
             return duration_cast<nanoseconds>(
                        steady_clock::now().time_since_epoch())
                 .count();
         }
-        DkmRtpIpc::DkmRtpIpc() {
+    DkmRtpIpc::DkmRtpIpc() {
         }
         DkmRtpIpc::~DkmRtpIpc() {
             stop();
         }
         bool DkmRtpIpc::open_socket(Role role, const Endpoint &ep) {
+#ifdef _WIN32
             WSADATA wsa{};
             if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0)
                 return false;
+#endif
             SOCKET s = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
             if (s == INVALID_SOCKET)
                 return false;
             sockaddr_in addr{};
             addr.sin_family = AF_INET;
             addr.sin_port = htons(ep.port);
+#ifdef _WIN32
             inet_pton(AF_INET, ep.address.c_str(), &addr.sin_addr);
+#else
+            inet_pton(AF_INET, ep.address.c_str(), &addr.sin_addr);
+#endif
             if (role == Role::Server) {
-                if (::bind(s, (sockaddr *)&addr, sizeof(addr)) ==
+                if (::bind(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
                     SOCKET_ERROR) {
+#ifdef _WIN32
                     ::closesocket(s);
                     WSACleanup();
+#else
+                    ::close(s);
+#endif
                     return false;
                 }
             } else {
-                if (::connect(s, (sockaddr *)&addr, sizeof(addr)) ==
+                if (::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) ==
                     SOCKET_ERROR) {
+#ifdef _WIN32
                     ::closesocket(s);
                     WSACleanup();
+#else
+                    ::close(s);
+#endif
                     return false;
                 }
             }
+            // store as pointer to keep original type (void* sock_)
+#ifdef _WIN32
             sock_ = new SOCKET(s);
+#else
+            sock_ = new SOCKET(s);
+#endif
             return true;
         }
         void DkmRtpIpc::close_socket() {
             if (!sock_)
                 return;
             SOCKET s = *reinterpret_cast<SOCKET *>(sock_);
+#ifdef _WIN32
             ::closesocket(s);
+            WSACleanup();
+#else
+            ::close(s);
+#endif
             delete reinterpret_cast<SOCKET *>(sock_);
             sock_ = nullptr;
-            WSACleanup();
         }
         bool DkmRtpIpc::start(Role role, const Endpoint &ep) {
             role_ = role;
@@ -99,14 +154,23 @@ namespace dkmrtp {
             SOCKET s = *reinterpret_cast<SOCKET *>(sock_);
 
             if (role_ == Role::Client) {
-                WSABUF bufs[2];
-                bufs[0].buf = reinterpret_cast<char *>(&h);
-                bufs[0].len = sizeof(h);
-                bufs[1].buf = (char *)payload;
-                bufs[1].len = len;
+                // POSIX/Windows 공통: 헤더+페이로드를 하나의 버퍼로 합쳐 전송
+                size_t total_len = sizeof(Header) + len;
+                std::vector<uint8_t> packet(total_len);
+                memcpy(packet.data(), &h, sizeof(Header));
+                if (payload && len)
+                    memcpy(packet.data() + sizeof(Header), payload, len);
+#ifdef _WIN32
                 DWORD sent = 0;
-                int rc = WSASend(s, bufs, 2, &sent, 0, nullptr, nullptr);
-                return rc == 0 && sent == sizeof(h) + len;
+                WSABUF bufs[1];
+                bufs[0].buf = reinterpret_cast<char *>(packet.data());
+                bufs[0].len = (ULONG)total_len;
+                int rc = WSASend(s, bufs, 1, &sent, 0, nullptr, nullptr);
+                return rc == 0 && sent == (DWORD)total_len;
+#else
+                int rc = send(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0);
+                return rc == (int)total_len;
+#endif
             } else {
                 if (!last_peer_.valid)
                     return false;
@@ -122,8 +186,8 @@ namespace dkmrtp {
                 if (payload && len)
                     memcpy(packet.data() + sizeof(Header), payload, len);
 
-                int rc = sendto(s, reinterpret_cast<const char*>(packet.data()), (int)total_len, 0,
-                                reinterpret_cast<sockaddr*>(&peer), sizeof(peer));
+                int rc = sendto(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0,
+                                reinterpret_cast<sockaddr *>(&peer), sizeof(peer));
                 if (rc == SOCKET_ERROR || rc != (int)total_len)
                     return false;
                 return true;
@@ -164,8 +228,11 @@ namespace dkmrtp {
                 FD_ZERO(&rfds);
                 FD_SET(s, &rfds);
                 timeval tv{1, 0};
-
+#ifdef _WIN32
                 int r = select(0, &rfds, nullptr, nullptr, &tv);
+#else
+                int r = select(s + 1, &rfds, nullptr, nullptr, &tv);
+#endif
         // 한국어: 수신 대기(최대 1초 타임아웃) 후 데이터가 있으면 읽는다.
                 if (r <= 0)
                     continue;
@@ -173,11 +240,9 @@ namespace dkmrtp {
                 int recvd = 0;
                 if (role_ == Role::Server) {
                     sockaddr_in peer{};
-                    int plen = sizeof(peer);
-                    recvd =
-                        recvfrom(s, reinterpret_cast<char *>(buf.data()),
-                                 (int)buf.size(), 0,
-                                 reinterpret_cast<sockaddr *>(&peer), &plen);
+                    socklen_t plen = sizeof(peer);
+                    recvd = recvfrom(s, reinterpret_cast<char *>(buf.data()), (int)buf.size(), 0,
+                                     reinterpret_cast<sockaddr *>(&peer), &plen);
 
                     if (recvd <= (int)sizeof(Header))
                         continue;
