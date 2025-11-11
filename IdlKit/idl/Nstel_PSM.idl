@@ -1,6 +1,5 @@
-
 #include "LDM_Common.idl"
-#include "Usage_And_Condition_Monitoring_PSM.idl"
+#include "UCMS_PSM.idl"
 
 module P_NSTEL
 {
@@ -9,7 +8,7 @@ module P_NSTEL
     enum T_OperationModeType
     {
         L_OperationModeType_NORMAL,
-        L_OperationModeType_EMER_GENCY,
+        L_OperationModeType_EMERGENCY,
         L_OperationModeType_MANUAL
     };
 

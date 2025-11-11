@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="file:///C:/Program Files/rti_connext_dds-7.5.0/bin/../resource/app/app_support/rtiddsgen/schema/rti_dds_profiles.xsd">
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="file:////home/nstel/rti_connext_dds-7.5.0/bin/../resource/app/app_support/rtiddsgen/schema/rti_dds_profiles.xsd">
 <types>
 <include file="LDM_Common.xml"/>
-<include file="Usage_And_Condition_Monitoring_PSM.xml"/>
+<include file="UCMS_PSM.xml"/>
 <module name="P_NSTEL">
   <typedef name="T_Float" type="float32"/>
   <enum name="T_OperationModeType">
     <enumerator name="L_OperationModeType_NORMAL"/>
-    <enumerator name="L_OperationModeType_EMER_GENCY"/>
+    <enumerator name="L_OperationModeType_EMERGENCY"/>
     <enumerator name="L_OperationModeType_MANUAL"/>
   </enum> 
   <enum name="T_OnOffType">

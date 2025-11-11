@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="file:///C:/Program Files/rti_connext_dds-7.5.0/bin/../resource/app/app_support/rtiddsgen/schema/rti_dds_profiles.xsd">
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="file:////home/nstel/rti_connext_dds-7.5.0/bin/../resource/app/app_support/rtiddsgen/schema/rti_dds_profiles.xsd">
 <types>
 <include file="LDM_Common.xml"/>
 <module name="P_UCMS">
@@ -50,9 +50,9 @@
   <struct name= "C_Installed_Software">
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType" key="true"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
-    <member name="A_serialNumber" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
-    <member name="A_version" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
-    <member name="A_configuration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
+    <member name="A_serialNumber" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_int"/>
+    <member name="A_version" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_int"/>
+    <member name="A_configuration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_int"/>
     <member name="A_subSystem_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
   </struct>
   <struct name= "C_Monitored_Characteristic">
@@ -123,8 +123,8 @@
     <member name="A_name" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_MediumString"/>
     <member name="A_value" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
     <member name="A_type" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_ThresholdType"/>
-    <member name="A_maxDuration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
-    <member name="A_maxNumberOfRepetitions" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
+    <member name="A_maxDuration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_int"/>
+    <member name="A_maxNumberOfRepetitions" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_int"/>
     <member name="A_conditionedThresholds_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_conditioningThreshold_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_concernedCharacteristic_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>

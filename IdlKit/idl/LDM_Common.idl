@@ -20,6 +20,9 @@ module P_LDM_Common
       L_RAGType_GREEN
    };
 
+   // samuel added
+   typedef long T_int;
+
    // A 32 Bit signed Integer
    typedef long T_Int32;
 
