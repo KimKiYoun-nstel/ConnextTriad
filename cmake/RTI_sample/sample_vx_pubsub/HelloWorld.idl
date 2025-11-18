@@ -1,0 +1,5 @@
+module tutorial {
+    struct HelloWorld {
+        string<256> message;
+    };
+};

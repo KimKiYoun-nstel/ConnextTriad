@@ -22,6 +22,9 @@
 #  include <sys/types.h>
 #  include <sys/socket.h>
 #  include <netinet/in.h>
+// POSIX: select(), fd_set and timeval
+#  include <sys/time.h>
+#  include <sys/select.h>
 #endif
 
 // 타입/상수 매핑: 원래 Windows 코드에서 사용하던 SOCKET/INVALID_SOCKET/SOCKET_ERROR

@@ -106,9 +106,9 @@ DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::jso
 					for (const auto& entry : entries) {
 						entry.holder->write_any(wrapped_sample);
 					}
-				} catch (const std::bad_any_cast& e) {
+				} catch (const std::bad_cast& e) {
 					// WriterHolder가 타입을 지원하지 않아 발생하는 예외 처리
-					LOG_ERR("DDS", "publish_json: bad_any_cast exception: %s", e.what());
+					LOG_ERR("DDS", "publish_json: bad_cast exception: %s", e.what());
 					LOG_ERR("DDS", "publish_json: WriterHolder may not support type=%s", type_name.c_str());
 					continue;
 				}
@@ -211,8 +211,8 @@ DdsResult DdsManager::publish_json(int domain_id, const std::string& pub_name, c
 		for (const auto& entry : entries) {
 			entry.holder->write_any(wrapped_sample);
 		}
-	} catch (const std::bad_any_cast& e) {
-		LOG_ERR("DDS", "publish_json: bad_any_cast exception: %s", e.what());
+	} catch (const std::bad_cast& e) {
+		LOG_ERR("DDS", "publish_json: bad_cast exception: %s", e.what());
 		LOG_ERR("DDS", "publish_json: WriterHolder may not support type=%s", type_name.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "WriterHolder type mismatch");
 	}

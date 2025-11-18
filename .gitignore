@@ -387,5 +387,6 @@ generated/*Support.*
 ## Custom project output
 build/
 out/
+build-vx/
 
 .zip

@@ -11,7 +11,13 @@ target_compile_features(RtpDdsCore PUBLIC cxx_std_17)
 target_include_directories(RtpDdsCore PRIVATE ${CMAKE_SOURCE_DIR}/third_party)
 target_include_directories(RtpDdsCore PUBLIC include)
 target_link_libraries(RtpDdsCore PUBLIC DkmRtpIpc)
-target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp")
+if(IS_VXWORKS)
+  message(STATUS "Using RTI CTL headers from NDDSHOME_CTL=$ENV{NDDSHOME_CTL}")
+  target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME_CTL}/include" "$ENV{NDDSHOME_CTL}/include/ndds" "$ENV{NDDSHOME_CTL}/include/ndds/hpp")
+else()
+  message(STATUS "Using RTI headers from NDDSHOME=$ENV{NDDSHOME}")
+  target_include_directories(RtpDdsCore PUBLIC "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp")
+endif()
 
 # IdlKit 산출물 사용
 if(TARGET DdsTypes)
@@ -32,47 +38,65 @@ if(TARGET DdsTypes)
   add_dependencies(RtpDdsCore idl_xml idl_type_registry idl_json_bind)
 endif()
 
-# --- Auto-detect RTI lib dir (prefer x64Win64VS2017) ---
-if(NOT DEFINED RTI_LIB_DIR)
-  set(_rti_candidates
-    "$ENV{NDDSHOME}/lib/x64Win64VS2017"
-    "$ENV{NDDSHOME}/lib/x64Win64VS2019"
-    "$ENV{NDDSHOME}/lib/x64Win64VS2022"
-    "$ENV{NDDSHOME}/lib/x64Win64"
-    "$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0"
-  )
-  foreach(d ${_rti_candidates})
-    if(EXISTS "${d}")
-      set(RTI_LIB_DIR "${d}")
-      break()
-    endif()
-  endforeach()
+if(IS_VXWORKS)
+  message(STATUS "Configuring RtpDdsCore for VxWorks target.")
+  set(RTI_LIB_DIR "$ENV{NDDSHOME_CTL}/lib/ppce6500Vx23.03llvm15.0_rtp")
+else()
+  # --- Auto-detect RTI lib dir (prefer x64Win64VS2017) ---
+  if(NOT DEFINED RTI_LIB_DIR)
+    set(_rti_candidates
+      "$ENV{NDDSHOME}/lib/x64Win64VS2017"
+      "$ENV{NDDSHOME}/lib/x64Win64VS2019"
+      "$ENV{NDDSHOME}/lib/x64Win64VS2022"
+      "$ENV{NDDSHOME}/lib/x64Win64"
+      "$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0"
+    )
+    foreach(d ${_rti_candidates})
+      if(EXISTS "${d}")
+        set(RTI_LIB_DIR "${d}")
+        break()
+      endif()
+    endforeach()
+  endif()
 endif()
 
 # if empty or not found, fail with a clear message
 if(NOT RTI_LIB_DIR)
-  message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR=<path> or verify NDDSHOME (example: -DRTI_LIB_DIR=$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0).")
+    message(FATAL_ERROR "RTI_LIB_DIR not found. Set -DRTI_LIB_DIR explicitly "
+                      "(example host: -DRTI_LIB_DIR=$ENV{NDDSHOME}/lib/x64Linux4gcc7.3.0, "
+                      "VxWorks: uses $ENV{NDDSHOME_CTL}/lib/ppce6500Vx23.03llvm15.0_rtp).")
 endif()
 
 message(STATUS "Using RTI_LIB_DIR=${RTI_LIB_DIR}")
 target_link_directories(RtpDdsCore PUBLIC "${RTI_LIB_DIR}")
 
-target_compile_definitions(RtpDdsCore PUBLIC NDDS_DLL_VARIABLE)
-
-# --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
-if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
-  set(RTI_LIBS_DEBUG nddscpp2d nddscd nddscored)
-else()
-  message(WARNING "RTI debug C++11 libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
-  set(RTI_LIBS_DEBUG nddscpp2 nddsc nddscore)
+if(NOT IS_VXWORKS)
+  target_compile_definitions(RtpDdsCore PUBLIC NDDS_DLL_VARIABLE)
 endif()
 
-# Modern C++11 API libs
-target_link_libraries(RtpDdsCore PUBLIC
-  $<$<CONFIG:Debug>:${RTI_LIBS_DEBUG}>
-  $<$<NOT:$<CONFIG:Debug>>:nddscpp2;nddsc;nddscore>
-)
+if(IS_VXWORKS)
+  # VxWorks CTL: 정적 z 라이브러리 사용 (디버그는 없을 수 있으므로 항상 릴리즈 사용)
+  target_link_libraries(RtpDdsCore PUBLIC
+    nddscpp2z
+    nddscz
+    nddscorez
+    rticonnextmsgcpp2z
+  )
+else()
+  # --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
+  if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
+    set(RTI_LIBS_DEBUG nddscpp2d nddscd nddscored)
+  else()
+    message(WARNING "RTI debug C++11 libraries not found in ${RTI_LIB_DIR}. Using release libs for Debug.")
+    set(RTI_LIBS_DEBUG nddscpp2 nddsc nddscore)
+  endif()
 
+  # Modern C++11 API libs
+  target_link_libraries(RtpDdsCore PUBLIC
+    $<$<CONFIG:Debug>:${RTI_LIBS_DEBUG}>
+    $<$<NOT:$<CONFIG:Debug>>:nddscpp2;nddsc;nddscore>
+  )
+endif()
 
 add_executable(RtpDdsGateway src/main.cpp)
 # On Windows we need ws2_32; on Unix systems skip the Windows-only lib.

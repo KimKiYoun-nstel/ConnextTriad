@@ -53,7 +53,7 @@ struct IWriterHolder {
     /**
      * @brief AnyData 타입의 데이터를 실제 타입으로 변환하여 DDS로 publish
      * @param data AnyData(실제 샘플)
-     * @throws std::bad_any_cast 타입 불일치 시 예외
+     * @throws std::bad_cast 타입 불일치 시 예외 (std::bad_any_cast 대신 std::bad_cast로 통일)
      */
     virtual void write_any(const AnyData& data) = 0;
     virtual void set_qos(const dds::pub::qos::DataWriterQos& /*q*/) {}
@@ -101,7 +101,7 @@ struct WriterHolder : public IWriterHolder {
             const T* typed_data = static_cast<const T*>(raw_data);
             if (!typed_data) {
                 LOG_ERR("WriterHolder", "write_any: failed to cast data to expected type");
-                throw std::bad_any_cast();
+                throw std::bad_cast();
             }
 
             LOG_FLOW("write_any: data cast successful. Writing data to writer.");
@@ -109,9 +109,9 @@ struct WriterHolder : public IWriterHolder {
             // RTI writer 호출
             writer->write(*typed_data);
             LOG_FLOW("write_any: write successful.");
-        } catch (const std::bad_any_cast& e) {
-            LOG_ERR("WriterHolder", "write_any: bad_any_cast exception: %s", e.what());
-            throw std::runtime_error("WriterHolder: bad_any_cast for type " + dds::topic::topic_type_name<T>::value() +
+        } catch (const std::bad_cast& e) {
+            LOG_ERR("WriterHolder", "write_any: bad_cast exception: %s", e.what());
+            throw std::runtime_error("WriterHolder: bad_cast for type " + dds::topic::topic_type_name<T>::value() +
                                     ": " + e.what());
         } catch (const std::exception& e) {
             LOG_ERR("WriterHolder", "write_any: exception: %s", e.what());

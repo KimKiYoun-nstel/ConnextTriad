@@ -137,7 +137,7 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
         if (!sample_ptr) {
             LOG_ERR("IPC", "AnyData contains null pointer for type=%s", type_name.c_str());
         }
-    } catch (const std::bad_any_cast&) {
+    } catch (const std::bad_cast&) {
         LOG_ERR("IPC", "AnyData is not shared_ptr<void> for type=%s", type_name.c_str());
     }
 
