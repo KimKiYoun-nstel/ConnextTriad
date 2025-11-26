@@ -19,6 +19,15 @@ namespace rtpdds {
 void DdsManager::clear_entities()
 {
 	std::lock_guard<std::mutex> lock(mutex_);
+
+	// If we're using WaitSet mode, stop the dispatcher first so its threads
+	// don't access DDS entities/conditions while we are destroying them.
+	bool restarted = false;
+	if (waitset_dispatcher_ && event_mode_ == EventMode::WaitSet) {
+		waitset_dispatcher_->stop();
+		restarted = true;
+	}
+
 	// 하위 엔티티부터 상위 엔티티 순으로 컨테이너를 비워 리소스를 해제
 	readers_.clear();
 	writers_.clear();
@@ -29,6 +38,11 @@ void DdsManager::clear_entities()
 	participants_.clear();
 
 	LOG_FLOW("clear_entities completed in correct hierarchical order");
+
+	// 필요하면 dispatcher를 재시작
+	if (restarted && waitset_dispatcher_) {
+		waitset_dispatcher_->start();
+	}
 }
 
 /**

@@ -75,7 +75,11 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "unordered_set": "cpp",
-        "regex": "cpp"
+        "regex": "cpp",
+        "condition_variable": "cpp",
+        "deque": "cpp",
+        "fstream": "cpp",
+        "shared_mutex": "cpp"
     },
     "[cpp]": {
         "editor.defaultFormatter": "xaver.clang-format"

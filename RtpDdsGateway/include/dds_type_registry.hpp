@@ -65,6 +65,12 @@ struct IDdsEventHandler {
      * @brief Listener 모드 활성/비활성 제어
      * @param enable true: Listener 활성화, false: Listener 비활성화 (WaitSet용)
      */
+    /**
+     * @brief Listener 모드 활성화
+     * @note 런타임에서 동적으로 listener를 끄는 동작은 현재 지원하지 않습니다.
+     *       `enable == true`일 때만 리스너를 활성화하도록 구현되어야 하며,
+     *       `enable == false`는 no-op(무시)로 처리됩니다.
+     */
     virtual void enable_listener_mode(bool enable) = 0;
 };
 
@@ -194,20 +200,21 @@ struct WriterHolder : public IWriterHolder {
 
     // [IDdsEventHandler 구현] Listener 모드 제어
     void enable_listener_mode(bool enable) override {
-        if (enable) {
-            // Listener 모드: 내부 리스너 생성 및 등록
-            if (!writer_holder_guard) {
-                auto lis = std::make_shared<WriterHolderListener>(this);
-                writer_holder_guard = lis;
-            }
-            auto lis = std::static_pointer_cast<WriterHolderListener>(writer_holder_guard);
-            writer->set_listener(lis, dds::core::status::StatusMask::publication_matched() |
-                                            dds::core::status::StatusMask::offered_incompatible_qos() |
-                                            dds::core::status::StatusMask::liveliness_lost());
-        } else {
-            // WaitSet 모드: 리스너 해제
-            writer->set_listener(nullptr, dds::core::status::StatusMask::none());
+        if (!enable) {
+            // 런타임에서 listener를 끄는 동작은 지원하지 않음(무시).
+            // 초기화/설정 시점에만 리스너를 활성화하도록 설계됨.
+            return;
         }
+
+        // Listener 모드: 내부 리스너 생성 및 등록
+        if (!writer_holder_guard) {
+            auto lis = std::make_shared<WriterHolderListener>(this);
+            writer_holder_guard = lis;
+        }
+        auto lis = std::static_pointer_cast<WriterHolderListener>(writer_holder_guard);
+        writer->set_listener(lis, dds::core::status::StatusMask::publication_matched() |
+                                        dds::core::status::StatusMask::offered_incompatible_qos() |
+                                        dds::core::status::StatusMask::liveliness_lost());
     }
 
     struct WriterHolderListener : dds::pub::NoOpDataWriterListener<T> {
@@ -342,16 +349,18 @@ struct ReaderHolder : IReaderHolder {
 
     // [IDdsEventHandler 구현] Listener 모드 제어
     void enable_listener_mode(bool enable) override {
-        if (enable) {
-            if (!listener_guard) {
-                auto lis = std::make_shared<ReaderHolderListener>(this);
-                listener_guard = lis;
-            }
-            auto lis = std::static_pointer_cast<ReaderHolderListener>(listener_guard);
-            reader->listener(lis.get(), current_mask);
-        } else {
-            reader->listener(nullptr, dds::core::status::StatusMask::none());
+        if (!enable) {
+            // 런타임에서 listener를 끄는 동작은 지원하지 않음(무시).
+            // 초기화/설정 시점에만 리스너를 활성화하도록 설계됨.
+            return;
         }
+
+        if (!listener_guard) {
+            auto lis = std::make_shared<ReaderHolderListener>(this);
+            listener_guard = lis;
+        }
+        auto lis = std::static_pointer_cast<ReaderHolderListener>(listener_guard);
+        reader->listener(lis.get(), current_mask);
     }
 
     // 통합 리스너: 샘플 전달 + 상태 로그
@@ -383,15 +392,22 @@ struct ReaderHolder : IReaderHolder {
     // ① 리스너 설치. 기본은 상태 이벤트만. enable_data=true면 data_available까지 즉시 활성
     std::shared_ptr<void> reader_holder_listener(const std::string& topic, bool enable_data = false) override
     {
-        topic_name = topic; // 토픽명 갱신
-
-        // 빈 토픽명 방어
-        if (topic.empty()) {
-            LOG_ERR("DDS", "Invalid empty topic name (listener registration skipped)");
-            return nullptr;
+        // 토픽명이 인자로 주어지면 갱신, 아니면 내부 저장값이나 reader에서 조회 시도
+        if (!topic.empty()) {
+            topic_name = topic;
+        } else {
+            if (topic_name.empty()) {
+                try {
+                    topic_name = reader->topic_description().name();
+                } catch (...) {
+                    // 토픽명을 회복할 수 없으면 등록을 건너뜁니다.
+                    LOG_ERR("DDS", "Invalid empty topic name (listener registration skipped)");
+                    return nullptr;
+                }
+            }
         }
 
-        LOG_DBG("DDS", "Before registering reader listener: checking enable state topic=%s", topic.c_str());
+        LOG_DBG("DDS", "Before registering reader listener: checking enable state topic=%s", topic_name.c_str());
         try {
             reader->enable();
             LOG_INF("DDS", "Reader enable completed topic=%s", topic.c_str());
@@ -411,7 +427,7 @@ struct ReaderHolder : IReaderHolder {
         // Listener 모드 활성화 (기본값)
         enable_listener_mode(true);
         
-        LOG_INF("DDS", "Reader listener registered topic=%s mask=0x%X", topic.c_str(), current_mask.to_ulong());
+        LOG_INF("DDS", "Reader listener registered topic=%s mask=0x%X", topic_name.c_str(), current_mask.to_ulong());
         return listener_guard;
     }
 
@@ -457,7 +473,10 @@ void register_dds_type(const std::string& type_name)
             writer = std::make_shared<dds::pub::DataWriter<T> >(publisher, *(typed_topic->topic));
         }
         auto holder = std::make_shared<WriterHolder<T> >(writer);
-        holder->writer_holder_listener(typed_topic->topic->name());
+            // Do not register listener here; DdsManager will enable listeners
+            // only when running in Listener mode. This avoids creating listeners
+            // unconditionally during factory creation which can conflict with
+            // WaitSet mode or cause use-after-free in certain RTI versions.
         return holder;
     };
     reader_factories[type_name] = [](dds::sub::Subscriber& subscriber, ITopicHolder& th, const dds::sub::qos::DataReaderQos* q) {
@@ -470,7 +489,10 @@ void register_dds_type(const std::string& type_name)
             reader = std::make_shared<dds::sub::DataReader<T> >(subscriber, *(typed_topic->topic));
         }
         auto holder = std::make_shared<ReaderHolder<T> >(reader);
-        holder->reader_holder_listener(typed_topic->topic->name());
+            // Do not register listener here; DdsManager will enable listeners
+            // only when running in Listener mode. This avoids creating listeners
+            // unconditionally during factory creation which can conflict with
+            // WaitSet mode or cause use-after-free in certain RTI versions.
         return holder;
     };
 }
