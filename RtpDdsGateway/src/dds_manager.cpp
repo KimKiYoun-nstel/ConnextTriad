@@ -86,13 +86,11 @@ void DdsManager::register_reader_event(std::shared_ptr<IReaderHolder> holder) {
         // Listener 모드: Holder 자체 리스너 활성화 (데이터 수신 포함)
         holder->enable_listener_mode(true);
     } else {
-        // WaitSet 모드: 리스너 끄고 Dispatcher에 등록
-        holder->enable_listener_mode(false);
-        
+        // WaitSet 모드: Dispatcher에 등록
         if (waitset_dispatcher_) {
             // 1. 모니터링용 (StatusCondition) -> Monitor Thread
             waitset_dispatcher_->attach_monitor(holder.get());
-            
+
             // 2. 데이터용 (ReadCondition) -> Data Thread
             waitset_dispatcher_->attach_data(holder.get());
         }
@@ -105,7 +103,6 @@ void DdsManager::register_writer_event(std::shared_ptr<IWriterHolder> holder) {
     if (event_mode_ == EventMode::Listener) {
         holder->enable_listener_mode(true);
     } else {
-        holder->enable_listener_mode(false);
         if (waitset_dispatcher_) {
             waitset_dispatcher_->attach_monitor(holder.get());
             // Writer는 Data Thread 등록 안 함
