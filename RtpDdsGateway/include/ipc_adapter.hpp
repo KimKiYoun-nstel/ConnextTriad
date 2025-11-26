@@ -4,7 +4,6 @@
  * @brief IPC 명령 ↔ DDS 동작 간의 변환 레이어 인터페이스
  */
 #include "dkmrtp_ipc.hpp"
-#include "dkmrtp_ipc_messages.hpp"
 #include "dkmrtp_ipc_types.hpp"
 #include <string>
 #include "async/sample_event.hpp"

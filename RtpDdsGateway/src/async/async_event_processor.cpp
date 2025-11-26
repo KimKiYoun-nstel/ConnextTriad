@@ -24,8 +24,14 @@ void AsyncEventProcessor::start()
 {
 	bool expected = false;
 	if (!running_.compare_exchange_strong(expected, true)) return;
+	// VxWorks에서는 TriadThread::start()로 1MB 스택을 적용, 기타 플랫폼은 std::thread 생성
+#ifdef RTI_VXWORKS
+	worker_.start([this] { loop(); });
+	if (cfg_.monitor_sec > 0) monitor_.start([this] { monitor_loop(); });
+#else
 	worker_ = std::thread([this] { loop(); });
 	if (cfg_.monitor_sec > 0) monitor_ = std::thread([this] { monitor_loop(); });
+#endif
 	LOG_INF("ASYNC", "start max_q=%zu monitor=%ds drain=%d warn_us=%u", cfg_.max_queue, cfg_.monitor_sec,
 			cfg_.drain_stop, cfg_.exec_warn_us);
 }

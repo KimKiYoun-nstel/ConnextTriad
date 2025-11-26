@@ -128,7 +128,11 @@ namespace dkmrtp {
             if (!open_socket(role, ep))
                 return false;
             running_ = true;
+#ifdef RTI_VXWORKS
+            th_.start([this]{ recv_loop(); }); // 1MB 스택 적용
+#else
             th_ = std::thread(&DkmRtpIpc::recv_loop, this);
+#endif
             return true;
         }
         void DkmRtpIpc::stop() {

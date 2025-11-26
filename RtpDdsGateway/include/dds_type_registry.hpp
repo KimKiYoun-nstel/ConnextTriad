@@ -243,6 +243,24 @@ struct ReaderHolder : IReaderHolder {
     {
         lis = std::make_shared<ReaderHolderListener>(topic);
 
+        // 빈 토픽명 방어: RTI DDS에서는 빈 문자열 토픽은 유효하지 않으므로 리스너 설치 및 enable 시도 이전에 차단
+        if (topic.empty()) {
+            LOG_ERR("DDS", "Invalid empty topic name (listener registration skipped)");
+            return nullptr;
+        }
+
+        LOG_DBG("DDS", "Before registering reader listener: checking enable state topic=%s", topic.c_str());
+        try {
+            reader->enable();
+            LOG_INF("DDS", "Reader enable completed topic=%s", topic.c_str());
+        } catch (const dds::core::AlreadyClosedError&) {
+            // 엔티티가 이미 closed 상태인 경우 재-enable 불가. 정보 로그로 처리.
+            LOG_WRN("DDS", "Reader already closed (enable ignored) topic=%s", topic.c_str());
+        } catch (const dds::core::Exception& ex) {
+            // RTI Modern C++ API에는 AlreadyEnabledError가 존재하지 않으므로 일반 예외 처리
+            LOG_ERR("DDS", "Reader enable failed topic=%s reason=%s", topic.c_str(), ex.what());
+            throw;
+        }
         current_mask = dds::core::status::StatusMask::subscription_matched() |
                        dds::core::status::StatusMask::requested_incompatible_qos() |
                        dds::core::status::StatusMask::sample_lost();
@@ -250,6 +268,7 @@ struct ReaderHolder : IReaderHolder {
         if (enable_data) current_mask |= dds::core::status::StatusMask::data_available();
 
         reader->listener(lis.get(), current_mask);  // 단일 리스너 등록
+        LOG_INF("DDS", "Reader listener registered topic=%s mask=0x%X", topic.c_str(), current_mask.to_ulong());
         listener_guard = lis;                       // 수명 유지
         return lis;
     }

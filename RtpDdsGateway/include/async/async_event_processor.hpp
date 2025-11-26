@@ -11,6 +11,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include "triad_thread.hpp"
 
 #include "sample_handler.hpp"
 #include "triad_log.hpp"
@@ -149,7 +150,7 @@ class AsyncEventProcessor
     mutable std::mutex m_;
     std::condition_variable cv_;
     std::deque<std::function<void()> > q_;
-    std::thread worker_, monitor_;
+    triad::TriadThread worker_, monitor_; // VxWorks에서 1MB 스택 적용
     std::atomic<bool> running_{false};
 
     // 핸들러

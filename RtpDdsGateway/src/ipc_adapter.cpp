@@ -321,9 +321,37 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         ev.corr_id, ev.body.size(), ev.route.c_str());
 
     nlohmann::json rsp;
+    // 1단계: CBOR → JSON 파싱 (파싱 실패 시 즉시 종료)
+    nlohmann::json req;
+    try {
+        req = nlohmann::json::from_cbor(ev.body);
+    } catch (const std::exception& ex) {
+        LOG_ERR("IPC", "request parse failed corr_id=%u error=%s", ev.corr_id, ex.what());
+        rsp = {
+            {"ok", false},
+            {"err", 7},                 // 기존 parse/error 코드 유지
+            {"msg", "parse failed"},
+            {"err_kind", "parse"},     // 에러 분류: 파싱 단계 실패
+            {"fail_detail", ex.what()}, // 구체적 예외 메시지
+            {"source", "agent"}        // UI 문제 아님을 명시
+        };
+        // 응답 로그 및 전송
+        try {
+            auto rsp_preview = rsp.dump();
+            LOG_FLOW("OUT corr_id=%u rsp=%s", ev.corr_id, truncate_for_log(rsp_preview, 1024).c_str());
+        } catch (...) {
+            LOG_FLOW("OUT corr_id=%u rsp=<non-json>", ev.corr_id);
+        }
+        auto out = nlohmann::json::to_cbor(rsp);
+        ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
+        const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
+        const auto qd = std::chrono::duration_cast<std::chrono::microseconds>(t0 - ev.received_time).count();
+        LOG_INF("IPC", "process_request done corr_id=%u q_delay(us)=%lld exec(us)=%lld rsp_size=%zu",
+                ev.corr_id, (long long)qd, (long long)dt, out.size());
+        return; // 파싱 실패 처리 종료
+    }
 
     try {
-        nlohmann::json req = nlohmann::json::from_cbor(ev.body);
         const std::string op = req.value("op", "");
         const auto target = req.value("target", nlohmann::json::object());
         const std::string kind = target.value("kind", std::string());
@@ -612,8 +640,16 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
 
         if (!ok && rsp.empty()) rsp = {{"ok", false}, {"err", 4}, {"msg", "unsupported or failed"}};
     } catch (const std::exception& ex) {
-        LOG_ERR("IPC", "process_request exception: %s", ex.what());
-        rsp = {{"ok", false}, {"err", 7}, {"msg", "json/cbor error"}};
+        // 비즈니스 로직/RTI 호출 등 내부 처리 중 발생한 예외
+        LOG_ERR("IPC", "process_request internal exception corr_id=%u error=%s", ev.corr_id, ex.what());
+        rsp = {
+            {"ok", false},
+            {"err", 7},                  // 기존 에러 코드 재사용 (내부 오류 범주)
+            {"msg", "internal error"},   // json/cbor error 오인 방지 문구 교체
+            {"err_kind", "internal"},    // 내부 처리 예외 분류
+            {"fail_detail", ex.what()},   // 예외 상세
+            {"source", "agent"}          // UI 책임 아님을 명확히
+        };
     }
 
     // OUT flow log for response (debug-level with truncation)

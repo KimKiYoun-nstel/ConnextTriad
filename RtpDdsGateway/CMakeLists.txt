@@ -75,13 +75,34 @@ if(NOT IS_VXWORKS)
 endif()
 
 if(IS_VXWORKS)
-  # VxWorks CTL: 정적 z 라이브러리 사용 (디버그는 없을 수 있으므로 항상 릴리즈 사용)
-  target_link_libraries(RtpDdsCore PUBLIC
-    nddscpp2z
-    nddscz
-    nddscorez
-    rticonnextmsgcpp2z
-  )
+  # VxWorks CTL: 정적 라이브러리(z) 사용. Debug 구성 시 *_zd 가 존재하면 구성별로 선택하고
+  # 없으면 릴리즈(z) 라이브러리를 모든 구성에 공통 사용.
+  set(_rti_vx_debug_libs nddscpp2zd nddsczd nddscorezd rticonnextmsgcpp2zd)
+  set(_rti_vx_release_libs nddscpp2z nddscz nddscorez rticonnextmsgcpp2z)
+  set(_rti_vx_lib_debug_available TRUE)
+  foreach(_lib ${_rti_vx_debug_libs})
+    # VxWorks 정적 라이브러리 확장자는 .a 로 가정
+    if(NOT EXISTS "${RTI_LIB_DIR}/${_lib}.a")
+      set(_rti_vx_lib_debug_available FALSE)
+    endif()
+  endforeach()
+  if(_rti_vx_lib_debug_available)
+    message(STATUS "RTI VxWorks debug static libs found; linking per configuration.")
+    target_link_libraries(RtpDdsCore PUBLIC
+      $<$<CONFIG:Debug>:nddscpp2zd>$<$<NOT:$<CONFIG:Debug>>:nddscpp2z>
+      $<$<CONFIG:Debug>:nddsczd>$<$<NOT:$<CONFIG:Debug>>:nddscz>
+      $<$<CONFIG:Debug>:nddscorezd>$<$<NOT:$<CONFIG:Debug>>:nddscorez>
+      $<$<CONFIG:Debug>:rticonnextmsgcpp2zd>$<$<NOT:$<CONFIG:Debug>>:rticonnextmsgcpp2z>
+    )
+  else()
+    message(WARNING "RTI VxWorks debug static libs not found; using release static libs for all configurations.")
+    target_link_libraries(RtpDdsCore PUBLIC
+      nddscpp2z
+      nddscz
+      nddscorez
+      rticonnextmsgcpp2z
+    )
+  endif()
 else()
   # --- Debug/Release에 맞는 Modern C++11 라이브러리 선택 ---
   if(EXISTS "${RTI_LIB_DIR}/nddscpp2d.lib")
@@ -122,3 +143,16 @@ add_custom_command(TARGET RtpDdsGateway POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory
           ${CMAKE_SOURCE_DIR}/qos
           $<TARGET_FILE_DIR:RtpDdsGateway>/qos)
+
+# For VxWorks builds, produce a .vxe artifact alongside the built target so
+# users can find an RTP/loader-friendly filename. We use a POST_BUILD copy
+# (instead of changing OUTPUT_NAME) to avoid platform-specific suffix issues
+# and to keep the normal target file intact.
+if(IS_VXWORKS)
+  add_custom_command(TARGET RtpDdsGateway POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            $<TARGET_FILE:RtpDdsGateway>
+            $<TARGET_FILE_DIR:RtpDdsGateway>/RtpDdsGateway.vxe
+    COMMENT "Creating VxWorks .vxe wrapper for RtpDdsGateway"
+  )
+endif()

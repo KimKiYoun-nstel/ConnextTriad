@@ -13,6 +13,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include "triad_thread.hpp"
 #include <vector>
 #ifdef _WIN32
 #include <WinSock2.h>
@@ -56,7 +57,7 @@ class DkmRtpIpc {
             Role role_{Role::Server};
             Endpoint ep_{};
             std::atomic<bool> running_{false};
-            std::thread th_;
+            triad::TriadThread th_; // VxWorks에서 1MB 스택 적용
             void *sock_{nullptr};
             Callbacks cb_{};
             std::mutex send_mtx_;

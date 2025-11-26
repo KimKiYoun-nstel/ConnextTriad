@@ -56,10 +56,9 @@ if(UNIX AND NOT IS_VXWORKS)
   add_compile_definitions(RTI_UNIX=1)
   message(STATUS "UNIX detected (non-VxWorks): enabling RTI_UNIX compile definition")
 elseif(IS_VXWORKS)
-  # toolchain에서 -DRTI_VXWORKS 를 이미 줬다면 생략해도 되지만,
-  # 여기서 한 번 더 명시해도 문제는 없음.
+  # VxWorks: RTI_VXWORKS 매크로만 사용하여 통일
   add_compile_definitions(RTI_VXWORKS=1)
-  message(STATUS "VxWorks detected: enabling RTI_VXWORKS compile definition")
+  message(STATUS "VxWorks detected: enabling RTI_VXWORKS compile definition (unified)")
 endif()
 # ----------------------------------------------------------------------
 
