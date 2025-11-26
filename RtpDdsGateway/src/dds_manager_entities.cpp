@@ -298,7 +298,12 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 	writers_[domain_id][pub_name][topic].push_back({id, writer_holder});
 	if (out_id) *out_id = static_cast<uint64_t>(id);
 	topic_to_type_[domain_id][topic] = type_name;
-	LOG_FLOW("writer created id=%llu domain=%d pub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, pub_name.c_str(), topic.c_str());
+
+	// 이벤트 등록
+	register_writer_event(writer_holder);
+
+	LOG_INF("DDS", "create_writer: success domain=%d pub=%s topic=%s type=%s id=%llu", 
+			domain_id, pub_name.c_str(), topic.c_str(), type_name.c_str(), static_cast<unsigned long long>(id));
 	return DdsResult(
 		true, DdsErrorCategory::None,
 		"Writer created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
@@ -421,10 +426,16 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 	readers_[domain_id][sub_name][topic].push_back({id, reader_holder});
 	if (out_id) *out_id = static_cast<uint64_t>(id);
 
+	// topic_to_type_ 업데이트
+	topic_to_type_[domain_id][topic] = type_name;
+
 	if (on_sample_) {
 		reader_holder->set_sample_callback(on_sample_);
 		LOG_DBG("DDS", "listener attached topic=%s", topic.c_str());
 	}
+
+	// 이벤트 등록
+	register_reader_event(reader_holder);
 
 	LOG_FLOW("reader created id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, sub_name.c_str(), topic.c_str());
 	return DdsResult(

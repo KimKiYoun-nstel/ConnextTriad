@@ -21,6 +21,8 @@ int main(int argc, char** argv)
     std::string mode = (argc > 1) ? argv[1] : "server";
     std::string addr = (argc > 2) ? argv[2] : "0.0.0.0";
     uint16_t port = (argc > 3) ? static_cast<uint16_t>(std::stoi(argv[3])) : 25000;
+    // receive mode: optional 4th argument. default: waitset
+    std::string rx_mode_arg = (argc > 4) ? argv[4] : "waitset";
 
     InitRtiLoggerToTriad();
 #ifdef _RTPDDS_DEBUG
@@ -32,7 +34,15 @@ int main(int argc, char** argv)
 #endif
 
     GatewayApp app;
-    
+    // map CLI receive mode to async::DdsReceiveMode
+    using namespace rtpdds::async;
+    DdsReceiveMode rxmode = DdsReceiveMode::WaitSet;
+    if (!rx_mode_arg.empty()) {
+        if (rx_mode_arg == "listener" || rx_mode_arg == "Listener") rxmode = DdsReceiveMode::Listener;
+        else rxmode = DdsReceiveMode::WaitSet;
+    }
+    app.set_receive_mode(rxmode);
+
     bool ok = (mode == "server") ? app.start_server(addr, port) : app.start_client(addr, port);
 
     if (!ok) {

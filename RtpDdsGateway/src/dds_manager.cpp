@@ -45,6 +45,10 @@ DdsManager::DdsManager(const std::string& qos_dir)
     for (const auto& factory : reader_factories) {
         LOG_DBG("DDS", "  Reader Type: %s", factory.first.c_str());
     }
+
+    // WaitSetDispatcher 생성 및 시작
+    waitset_dispatcher_ = std::make_unique<async::WaitSetDispatcher>();
+    waitset_dispatcher_->start();
 }
 
 /**
@@ -55,7 +59,78 @@ DdsManager::DdsManager(const std::string& qos_dir)
  */
 DdsManager::~DdsManager()
 {
+    if (waitset_dispatcher_) {
+        waitset_dispatcher_->stop();
+    }
     clear_entities();
+}
+
+void DdsManager::set_event_mode(EventMode mode) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // 안전성: 실행시점(mode)는 엔티티 생성 이전에만 설정 가능하도록 강제합니다.
+    // 이미 어떤 엔티티라도 생성된 상태에서 모드를 바꾸면 내부 등록/해제와 충돌할 수 있으므로 예외로 처리합니다.
+    bool has_entities = !participants_.empty() || !publishers_.empty() || !subscribers_.empty() || !writers_.empty() || !readers_.empty();
+    if (has_entities) {
+        LOG_ERR("DDS", "set_event_mode: cannot change event mode after entities have been created");
+        throw std::logic_error("DdsManager::set_event_mode must be called before creating any DDS entities");
+    }
+    event_mode_ = mode;
+    LOG_INF("DDS", "Event mode set to: %s", (mode == EventMode::Listener ? "Listener" : "WaitSet"));
+}
+
+// 헬퍼 함수 구현
+void DdsManager::register_reader_event(std::shared_ptr<IReaderHolder> holder) {
+    if (!holder) return;
+
+    if (event_mode_ == EventMode::Listener) {
+        // Listener 모드: Holder 자체 리스너 활성화 (데이터 수신 포함)
+        holder->enable_listener_mode(true);
+    } else {
+        // WaitSet 모드: 리스너 끄고 Dispatcher에 등록
+        holder->enable_listener_mode(false);
+        
+        if (waitset_dispatcher_) {
+            // 1. 모니터링용 (StatusCondition) -> Monitor Thread
+            waitset_dispatcher_->attach_monitor(holder.get());
+            
+            // 2. 데이터용 (ReadCondition) -> Data Thread
+            waitset_dispatcher_->attach_data(holder.get());
+        }
+    }
+}
+
+void DdsManager::register_writer_event(std::shared_ptr<IWriterHolder> holder) {
+    if (!holder) return;
+
+    if (event_mode_ == EventMode::Listener) {
+        holder->enable_listener_mode(true);
+    } else {
+        holder->enable_listener_mode(false);
+        if (waitset_dispatcher_) {
+            waitset_dispatcher_->attach_monitor(holder.get());
+            // Writer는 Data Thread 등록 안 함
+        }
+    }
+}
+
+void DdsManager::unregister_reader_event(std::shared_ptr<IReaderHolder> holder) {
+    if (!holder) return;
+    
+    // 모드 상관없이 모두 해제 시도 (안전하게)
+    holder->enable_listener_mode(false);
+    if (waitset_dispatcher_) {
+        waitset_dispatcher_->detach_monitor(holder.get());
+        waitset_dispatcher_->detach_data(holder.get());
+    }
+}
+
+void DdsManager::unregister_writer_event(std::shared_ptr<IWriterHolder> holder) {
+    if (!holder) return;
+
+    holder->enable_listener_mode(false);
+    if (waitset_dispatcher_) {
+        waitset_dispatcher_->detach_monitor(holder.get());
+    }
 }
 
 }  // namespace rtpdds

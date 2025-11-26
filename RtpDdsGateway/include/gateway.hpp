@@ -37,6 +37,8 @@ public:
     bool start_server(const std::string& bind, uint16_t port);
     /** 클라이언트 모드 시작 (peer/port 지정) */
     bool start_client(const std::string& peer, uint16_t port);
+    /** 수신 모드 설정 (start_* 호출 전에 설정해야 함) */
+    void set_receive_mode(async::DdsReceiveMode mode);
     /** 메인 루프 실행 */
     void run();
     /** 종료 및 자원 해제 */
@@ -50,7 +52,7 @@ private:
     
     // 추가: DDS/IPC 이벤트를 처리할 소비자 스레드
     async::AsyncEventProcessor async_;
-    async::DdsReceiveMode rx_mode_{async::DdsReceiveMode::Listener};
+    async::DdsReceiveMode rx_mode_{async::DdsReceiveMode::WaitSet};
     std::unique_ptr<async::IDdsReceiver> rx_{};
 };
 }  // namespace rtpdds

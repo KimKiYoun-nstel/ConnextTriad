@@ -84,6 +84,22 @@ bool GatewayApp::start_server(const std::string &bind, uint16_t port) {
 }
 
 /**
+ * @brief 수신 모드 설정
+ * @note 이 함수는 Reader/Writer 등 DDS 엔티티 생성 전에 호출해야 합니다.
+ */
+void GatewayApp::set_receive_mode(async::DdsReceiveMode mode)
+{
+    rx_mode_ = mode;
+    // DdsManager에도 동일한 모드를 설정
+    using EventMode = rtpdds::DdsManager::EventMode;
+    if (mode == async::DdsReceiveMode::Listener) {
+        mgr_.set_event_mode(EventMode::Listener);
+    } else {
+        mgr_.set_event_mode(EventMode::WaitSet);
+    }
+}
+
+/**
  * @brief 클라이언트 모드 시작
  * @param peer 접속할 서버 주소
  * @param port 접속할 서버 포트

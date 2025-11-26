@@ -56,6 +56,9 @@ DdsResult DdsManager::remove_writer(uint64_t id)
 				auto &vec = topicIt->second;
 				auto it = std::find_if(vec.begin(), vec.end(), [id](const WriterEntry &e) { return e.id == id; });
 				if (it != vec.end()) {
+					// 이벤트 해제
+					unregister_writer_event(it->holder);
+
 					// writer 제거
 					vec.erase(it);
 					LOG_FLOW("removed writer id=%llu domain=%d pub=%s topic=%s",
@@ -123,6 +126,9 @@ DdsResult DdsManager::remove_reader(uint64_t id)
 				auto &vec = topicIt->second;
 				auto it = std::find_if(vec.begin(), vec.end(), [id](const ReaderEntry &e) { return e.id == id; });
 				if (it != vec.end()) {
+					// 이벤트 해제
+					unregister_reader_event(it->holder);
+
 					vec.erase(it);
 					LOG_FLOW("removed reader id=%llu domain=%d sub=%s topic=%s",
 						static_cast<unsigned long long>(id), domain_id, subIt->first.c_str(), topicIt->first.c_str());
