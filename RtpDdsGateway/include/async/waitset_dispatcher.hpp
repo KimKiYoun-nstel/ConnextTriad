@@ -33,6 +33,13 @@ public:
     void stop();
 
     /**
+     * @brief 모든 등록된 핸들러와 condition 제거 (스레드 정지 후 호출)
+     *
+     * clear_entities() 등에서 엔티티를 파괴하기 전에 호출하여
+     * 디스패처가 가리키는 포인터가 남지 않도록 합니다.
+     */
+    void detach_all();
+    /**
      * @brief 모니터링 대상(Writer/Reader) 등록
      * @param handler 이벤트 핸들러 인터페이스
      */

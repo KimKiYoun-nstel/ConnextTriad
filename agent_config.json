@@ -1,0 +1,19 @@
+{
+    "network": {
+        "role": "server",
+        "ip": "0.0.0.0",
+        "port": 25000
+    },
+    "dds": {
+        "qos_dir": "qos",
+        "mode": "waitset"
+    },
+    "logging": {
+        "log_dir": "logs",
+        "file_name": "agent.log",
+        "level": "info",
+        "console_output": true,
+        "max_file_size_mb": 10,
+        "max_backup_files": 5
+    }
+}

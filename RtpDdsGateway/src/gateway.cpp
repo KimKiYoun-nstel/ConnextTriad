@@ -16,6 +16,8 @@
 // adapter
 #include "rtpdds/dds_manager_adapter.hpp"
 
+#include "app_config.hpp"
+
 namespace rtpdds {
 
 /**
@@ -23,7 +25,8 @@ namespace rtpdds {
  * 내부적으로 DdsManager, IpcAdapter를 초기화할 준비만 함
  */
 GatewayApp::GatewayApp()
-  : async_(async::AsyncEventProcessor::Config{
+  : mgr_(AppConfig::instance().dds().qos_dir),
+    async_(async::AsyncEventProcessor::Config{
         /*max_queue*/   8192,
         /*monitor_sec*/ 10,
         /*drain_stop*/  true,

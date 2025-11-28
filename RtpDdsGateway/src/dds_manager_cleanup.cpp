@@ -25,6 +25,9 @@ void DdsManager::clear_entities()
 	bool restarted = false;
 	if (waitset_dispatcher_ && event_mode_ == EventMode::WaitSet) {
 		waitset_dispatcher_->stop();
+		// 스레드를 정지한 뒤, 디스패처 내부에 남아있는 모든 핸들러/condition을 제거
+		// (핸들러 포인터가 파괴되는 도중 디스패처가 참조하지 않도록 보장)
+		waitset_dispatcher_->detach_all();
 		restarted = true;
 	}
 

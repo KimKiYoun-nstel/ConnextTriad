@@ -38,6 +38,34 @@ void WaitSetDispatcher::stop() {
     LOG_INF("WaitSetDispatcher", "Stopped threads");
 }
 
+void WaitSetDispatcher::detach_all()
+{
+    // 호출 시점은 스레드가 중지된 후여야 합니다.
+    try {
+        {
+            std::lock_guard<std::mutex> lock(monitor_mutex_);
+            for (auto &kv : monitor_handlers_) {
+                try {
+                    monitor_waitset_.detach_condition(kv.first);
+                } catch (...) {}
+            }
+            monitor_handlers_.clear();
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(data_mutex_);
+            for (auto &kv : data_handlers_) {
+                try {
+                    data_waitset_.detach_condition(kv.first);
+                } catch (...) {}
+            }
+            data_handlers_.clear();
+        }
+    } catch (const std::exception& e) {
+        LOG_ERR("WaitSetDispatcher", "detach_all exception: %s", e.what());
+    }
+}
+
 void WaitSetDispatcher::attach_monitor(IDdsEventHandler* handler) {
     if (!handler) return;
     std::lock_guard<std::mutex> lock(monitor_mutex_);

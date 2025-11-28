@@ -144,6 +144,14 @@ add_custom_command(TARGET RtpDdsGateway POST_BUILD
           ${CMAKE_SOURCE_DIR}/qos
           $<TARGET_FILE_DIR:RtpDdsGateway>/qos)
 
+# copy agent_config.json if exists
+if(EXISTS "${CMAKE_SOURCE_DIR}/agent_config.json")
+  add_custom_command(TARGET RtpDdsGateway POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/agent_config.json
+            $<TARGET_FILE_DIR:RtpDdsGateway>/agent_config.json)
+endif()
+
 # For VxWorks builds, produce a .vxe artifact alongside the built target so
 # users can find an RTP/loader-friendly filename. We use a POST_BUILD copy
 # (instead of changing OUTPUT_NAME) to avoid platform-specific suffix issues
