@@ -390,3 +390,8 @@ out/
 build-vx/
 
 .zip
+
+# Python virtual environment
+venv/
+.venv/
+env/

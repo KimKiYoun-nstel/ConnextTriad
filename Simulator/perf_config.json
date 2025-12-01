@@ -1,0 +1,49 @@
+{
+    "host": "127.0.0.1",
+    "port": 25000,
+    "duration": 60,
+    "writers": [
+        {
+            "topic": "Actual_Alarm",
+            "type": "P_Alarms_PSM::C_Actual_Alarm",
+            "hz": 50,
+            "sample_file": "examples/samples/Actual_Alarm.json"
+        },
+        {
+            "topic": "Cannon_Actuator_Control",
+            "type": "P_NSTEL::C_Cannon_Actuator_Control",
+            "hz": 10,
+            "sample_file": "examples/samples/Cannon_Actuator_Control.json"
+        },
+        {
+            "topic": "Monitored_Entity_runBIT",
+            "type": "P_UCMS::C_Monitored_Entity_runBIT",
+            "hz": 20,
+            "sample_file": "examples/samples/Monitored_Entity_runBIT.json"
+        },
+        {
+            "topic": "AlarmMsg",
+            "type": "C_AlarmMsg",
+            "hz": 30,
+            "sample_file": "examples/samples/alarm_msg.json"
+        }
+    ],
+    "readers": [
+        {
+            "topic": "Actual_Alarm",
+            "type": "P_Alarms_PSM::C_Actual_Alarm"
+        },
+        {
+            "topic": "Cannon_Actuator_Control",
+            "type": "P_NSTEL::C_Cannon_Actuator_Control"
+        },
+        {
+            "topic": "Monitored_Entity_runBIT",
+            "type": "P_UCMS::C_Monitored_Entity_runBIT"
+        },
+        {
+            "topic": "AlarmMsg",
+            "type": "C_AlarmMsg"
+        }
+    ]
+}
