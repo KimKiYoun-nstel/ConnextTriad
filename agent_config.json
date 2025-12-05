@@ -9,6 +9,7 @@
         "mode": "waitset"
     },
     "logging": {
+        "file_output": true,
         "log_dir": "logs",
         "file_name": "agent.log",
         "level": "info",

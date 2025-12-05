@@ -34,7 +34,7 @@ int main(int argc, char** argv)
 
     // 3. Initialize Logger
     const auto& log_cfg = config.logging();
-    if (log_cfg.use_file_logging) {
+    if (log_cfg.file_output) {
         triad::init_logger(log_cfg.log_dir, log_cfg.file_name, 
                            log_cfg.max_file_size_mb, log_cfg.max_backup_files, 
                            log_cfg.console_output);
@@ -79,6 +79,7 @@ int main(int argc, char** argv)
 
     if (!ok) {
         std::cerr << "failed to start gateway\n";
+        config.stop_watching();
         triad::shutdown_logger();
         return 1;
     }
@@ -86,8 +87,12 @@ int main(int argc, char** argv)
     LOG_INF("Gateway", "starting mode=%s addr=%s port=%u rx_mode=%s", 
             mode.c_str(), addr.c_str(), (unsigned)port, rx_mode_arg.c_str());
 
+    // Start config watching
+    config.start_watching("agent_config.json");
+
     app.run();
     
+    config.stop_watching();
     triad::shutdown_logger();
     return 0;
 }

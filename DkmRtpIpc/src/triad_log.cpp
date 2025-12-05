@@ -111,7 +111,7 @@ namespace triad {
             std::string log_line = format_log(entry);
 
             if (console_output_) {
-                std::cout << log_line; // 이미 개행 포함됨
+                std::cout << log_line << std::flush; // 즉시 출력
             }
 
             try {
