@@ -10,3 +10,5 @@ cmake -S . -B build-vx -G Ninja -DCMAKE_TOOLCHAIN_FILE=./cmake/toolchain-vxworks
 
 # 빌드(자세한 출력)
 cmake --build build-vx -v
+cmake --build build-vx --clean-first
+cmake --build build-vx --target RtpDdsGateway --clean-first

@@ -35,6 +35,11 @@ else()
 endif()
 # ----------------------------------------------------------------------
 
+# If the toolchain exposed Makefile-like flags, inherit them for the build.
+# Note: per-target compile flags from the toolchain are applied inside
+# the IdlKit / other subprojects where targets are created. Avoid globally
+# appending to CMAKE_CXX_FLAGS here to keep behavior scoped and predictable.
+
 
 if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8 /EHsc /bigobj)
@@ -48,6 +53,28 @@ endif()
 # suppression so other warnings remain enabled.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   add_compile_options(-Wno-gnu-zero-variadic-macro-arguments)
+  # If building for VxWorks and the toolchain exposed the Makefile-style
+  # common CXX flags, apply only the non-include flags globally. Include
+  # directories ("-I...") are left to each subproject/target to avoid
+  # duplicating paths that are already set by the subprojects (e.g. IdlKit).
+  if(IS_VXWORKS AND DEFINED TOOLCHAIN_CXXFLAGS_COMMON)
+    string(REPLACE "\n" " " _toolchain_cxxflags "${TOOLCHAIN_CXXFLAGS_COMMON}")
+    string(REGEX REPLACE "[ ]+" " " _toolchain_cxxflags "${_toolchain_cxxflags}")
+    # split into list
+    string(REPLACE " " ";" _flags_list "${_toolchain_cxxflags}")
+    set(_toolchain_other_flags)
+    foreach(_f IN LISTS _flags_list)
+      if(_f MATCHES "^-I")
+        # skip include flags here
+      else()
+        list(APPEND _toolchain_other_flags "${_f}")
+      endif()
+    endforeach()
+    if(_toolchain_other_flags)
+      add_compile_options(${_toolchain_other_flags})
+      message(STATUS "Added TOOLCHAIN_CXXFLAGS_COMMON non-include flags to global compile options (Clang + VxWorks)")
+    endif()
+  endif()
 endif()
 
 # --- [CHANGED] RTI_UNIX / RTI_VXWORKS 정의 분리 -----------------------
@@ -76,6 +103,15 @@ if(IS_VXWORKS)
 else()
   # 호스트(Windows/Linux) 빌드: 기존처럼 패키지 찾기
   find_package(nlohmann_json CONFIG REQUIRED)
+endif()
+
+# Ensure generated VSB config macro is visible to all targets early
+# Some VxWorks public headers rely on the macro `_VSB_CONFIG_FILE` to
+# include the generated config header. Add a global compile definition
+# before any subdirectories/targets are created so every TU receives it.
+if(IS_VXWORKS AND DEFINED VSB_SYSROOT)
+  add_compile_definitions(_VSB_CONFIG_FILE="${VSB_SYSROOT}/h/config/vsbConfig.h")
+  message(STATUS "Added global compile definition _VSB_CONFIG_FILE='${VSB_SYSROOT}/h/config/vsbConfig.h'")
 endif()
 
 # 순서 중요: IdlKit 먼저

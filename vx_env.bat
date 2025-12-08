@@ -13,4 +13,4 @@ if not exist "%WRENV%" (
 
 REM ==== 2) VxWorks 환경이 적용된 cmd 창을 연다 ====
 REM   -p vxworks-23.03 부분도 설치된 프로파일 이름에 맞게 필요하면 수정
-"%WRENV%" cmd /k "set WIND_CC_SYSROOT=D:\WindRiver\workspace_test\test_vsb& set WIND_BASE=D:\WindRiver\vxworks\23.03& set NDDSHOME_CTL=D:\rti_connext_dds-7.3.1& title VxWorks Dev Shell"
+"%WRENV%" cmd /k "set VSB_DIR=D:\WindRiver\workspace_test\test_vsb& set WIND_CC_SYSROOT=D:\WindRiver\workspace_test\test_vsb& set WIND_BASE=D:\WindRiver\vxworks\23.03& set NDDSHOME_CTL=D:\rti_connext_dds-7.3.1& title VxWorks Dev Shell& set CLANGXX=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64\bin\clang++.exe& set LLVM_ROOT=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64"

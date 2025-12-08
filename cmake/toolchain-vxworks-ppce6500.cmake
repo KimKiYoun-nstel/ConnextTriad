@@ -34,8 +34,47 @@ message(STATUS "WIND_CC_SYSROOT = '${VSB_SYSROOT}'")
 #   가장 깔끔한 건 wr-cc / wr-c++ 래퍼를 쓰는 것 (SDK/Workbench가 제공)
 #   정확한 경로는 네 설치에 맞게 바꿔야 함.
 #   예시는 host x86-win32 기준
+## Compiler selection: prefer using an explicit clang++ for compilation
+## while using wr-c++ as the linker driver during final link step.
+## - To override the clang++ path, set environment variable `CLANGXX`.
+## - If not set, try a few plausible default locations and fall back to wr-c++.
+if(DEFINED ENV{CLANGXX})
+  set(_clangxx_raw "$ENV{CLANGXX}")
+  file(TO_CMAKE_PATH "${_clangxx_raw}" _clangxx)
+  if(EXISTS "${_clangxx}")
+    set(CMAKE_CXX_COMPILER "${_clangxx}")
+    message(STATUS "Using clang++ from ENV{CLANGXX}: '${CMAKE_CXX_COMPILER}'")
+  endif()
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  # Try common WindRiver compiler path (may contain clang in some installs)
+  set(_maybe_clang "${WIND_BASE}/host/x86-win64/bin/clang++.exe")
+  if(EXISTS "${_maybe_clang}")
+    set(CMAKE_CXX_COMPILER "${_maybe_clang}")
+    message(STATUS "Found clang++ at: '${CMAKE_CXX_COMPILER}'")
+  endif()
+endif()
+
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  # Try LLVM_ROOT from environment if provided
+  if(DEFINED ENV{LLVM_ROOT})
+    file(TO_CMAKE_PATH "$ENV{LLVM_ROOT}/bin/clang++.exe" _llvm_clang)
+    if(EXISTS "${_llvm_clang}")
+      set(CMAKE_CXX_COMPILER "${_llvm_clang}")
+      message(STATUS "Found clang++ at ENV{LLVM_ROOT}: '${CMAKE_CXX_COMPILER}'")
+    endif()
+  endif()
+endif()
+
+# Fallback to wr-c++ if no clang++ was found (keeps previous behavior)
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+  set(CMAKE_CXX_COMPILER "${WIND_BASE}/host/x86-win64/bin/wr-c++.exe")
+  message(STATUS "Falling back to wr-c++ for C++ compiler: '${CMAKE_CXX_COMPILER}'")
+endif()
+
+# Keep a C compiler defined (not used for most of this project scope)
 set(CMAKE_C_COMPILER   "${WIND_BASE}/host/x86-win64/bin/wr-cc.exe")
-set(CMAKE_CXX_COMPILER "${WIND_BASE}/host/x86-win64/bin/wr-c++.exe")
 
 # wr-cc가 알아서 타겟 + sysroot를 잡으므로 별도 --target은 보통 필요 없음.
 # 만약 wr-cc 대신 clang.exe를 직접 쓸 거라면, 이런 식으로 바꿔야 함:
@@ -62,17 +101,31 @@ set(CMAKE_CXX_FLAGS_INIT "${COMMON_VX_CXX_FLAGS}")
 #  -static : 정적 링크 (PPC+RTP에서는 동적 lib 불가, RTI Platform Notes 8.1.1) 
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-rtp -static")
 
+# Force the linker driver to use the wr-c++ wrapper for final linking
+# so that RTOS-specific link-time behavior (scripts/rtp) is preserved.
+set(_wr_cxx_driver "${WIND_BASE}/host/x86-win64/bin/wr-c++.exe")
+if(EXISTS "${_wr_cxx_driver}")
+  set(CMAKE_LINKER "${_wr_cxx_driver}")
+  # Template for how CMake performs C++ linking. Use the wrapper as the executable.
+  # [FIX] <LINK_FLAGS> added to ensure linker flags (like -static) are passed.
+  set(CMAKE_CXX_LINK_EXECUTABLE "\"${CMAKE_LINKER}\" <FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
+  message(STATUS "Using wr-c++ as linker driver: '${CMAKE_LINKER}' (compile: '${CMAKE_CXX_COMPILER}')")
+else()
+  message(WARNING "wr-c++ not found at '${_wr_cxx_driver}'; CMake will use compiler driver for linking")
+endif()
+
 # 6) VxWorks & RTI 헤더/라이브러리 경로
 # VxWorks 기본 헤더
-set(VXWORKS_INCLUDE_DIR "${WIND_BASE}/target/h")
+set(VXWORKS_INCLUDE_DIR "${VSB_SYSROOT}/share/h/public" "${VSB_SYSROOT}/usr/h/public" "${VSB_SYSROOT}/usr/h")
 # 필요하면 coreip 등 세부 include도 나중에 추가 가능
 
 # RTI Connext VxWorks CTL 경로
 set(RTI_VX_LIB_DIR "${NDDSHOME_CTL}/lib/ppce6500Vx23.03llvm15.0_rtp")
 
 # CMake 전역 include/link path (간단하게 가자)
+# `VXWORKS_INCLUDE_DIR`는 리스트로 설정되어 있으므로 변수 확장 시 따옴표 없이 전달합니다
 include_directories(
-  "${VXWORKS_INCLUDE_DIR}"
+  ${VXWORKS_INCLUDE_DIR}
   "${NDDSHOME_CTL}/include"                      # RTI 헤더
 )
 
@@ -83,3 +136,8 @@ link_directories(
 # 7) 나중에 프로젝트 쪽에서 이 변수들을 활용할 수 있게 export 느낌으로 남겨두기
 set(VXWORKS TRUE)
 set(VX_TARGET_ARCH "ppce6500Vx23.03llvm15.0_rtp")
+
+# --- Expose common Makefile flags as toolchain variables so project CMakeLists
+#     can inherit them. These are based on the project's VxWorks Makefile.
+#     Keep these as CACHE so users can override them on the CMake command line.
+set(TOOLCHAIN_CXXFLAGS_COMMON "--target=powerpc-wrs-vxworks -mhard-float -mno-altivec -msecure-plt -mcpu=e6500 -fno-builtin -fno-strict-aliasing -nostdlibinc -Wno-return-type-c-linkage -DRTI_VXWORKS -DRTI_CLANG -DRTI_STATIC -DRTI_RTP -D_HAVE_TOOL_XTORS -D_USE_INIT_ARRAY -D_VSB_CONFIG_FILE=\"${VSB_SYSROOT}/h/config/vsbConfig.h\" -D_VX_CPU=_VX_PPCE6500 -D_VX_TOOL=llvm -D_VX_TOOL_FAMILY=llvm -D__ppc -D__ppc__ -D__vxworks -D__ELF__ -D__RTP__ -D__VXWORKS__ -I${NDDSHOME_CTL}/include -I${NDDSHOME_CTL}/include/ndds -I${NDDSHOME_CTL}/include/ndds/hpp -I${GEN_DIR}" CACHE STRING "C++ compile flags (from Makefile)")

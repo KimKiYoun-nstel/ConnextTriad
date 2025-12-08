@@ -127,6 +127,11 @@ else()
   target_link_libraries(RtpDdsGateway PRIVATE RtpDdsCore)
 endif()
 
+if(IS_VXWORKS)
+  # VxWorks RTP는 기본적으로 정적 링크(-static)를 해야 타겟에 없는 .so 의존성을 피할 수 있음
+  target_link_options(RtpDdsGateway PRIVATE -static)
+endif()
+
 # 실행 폴더에 XML 복사 (게이트웨이가 런타임에 XML 읽을 경우)
 add_dependencies(RtpDdsGateway idl_xml)
 add_custom_command(TARGET RtpDdsGateway POST_BUILD
