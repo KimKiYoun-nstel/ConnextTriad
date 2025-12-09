@@ -1,4 +1,5 @@
 #include "triad_log.hpp"
+#include "triad_thread.hpp"
 #include <queue>
 #include <thread>
 #include <mutex>
@@ -11,6 +12,10 @@
 #include <iomanip>
 #include <sstream>
 #include <cstring>
+
+#ifdef RTI_VXWORKS
+#include <taskLib.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -59,7 +64,14 @@ namespace triad {
                 std::cerr << "Failed to create log directory: " << e.what() << std::endl;
             }
 
-            worker_thread_ = std::thread(&AsyncLogger::process_queue, this);
+#ifdef RTI_VXWORKS
+            worker_thread_.start([this]{ process_queue(); }, "DA_Logger");
+#else
+            worker_thread_ = std::thread([this]{ 
+                triad::set_thread_name("DA_Logger"); 
+                process_queue(); 
+            });
+#endif
         }
 
         void stop() {
@@ -201,7 +213,7 @@ namespace triad {
         std::queue<LogEntry> log_queue_;
         std::mutex queue_mutex_;
         std::condition_variable cv_;
-        std::thread worker_thread_;
+        triad::TriadThread worker_thread_;
         bool running_ = false;
     };
 
@@ -238,7 +250,11 @@ namespace triad {
 
         // Thread ID
         std::stringstream ss_tid;
+#ifdef RTI_VXWORKS
+        ss_tid << "0x" << std::hex << (unsigned long)taskIdSelf();
+#else
         ss_tid << std::this_thread::get_id();
+#endif
 
         // 로거가 실행 중이 아니면(설정 파일 없음 등) 콘솔에 직접 출력 (Fallback)
         if (!AsyncLogger::instance().is_running()) {

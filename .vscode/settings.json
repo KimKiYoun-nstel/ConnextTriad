@@ -87,5 +87,6 @@
     "editor.formatOnSave": true,
     "clang-format.executable": "${workspaceRoot}/.clang-format",
     "python-envs.defaultEnvManager": "ms-python.python:system",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "python.terminal.activateEnvironment": false
 }

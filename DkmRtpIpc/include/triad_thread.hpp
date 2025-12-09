@@ -14,11 +14,49 @@
  */
 #pragma once
 
-#include <functional>
-#include <memory>
+#include <string>
 
 #ifdef RTI_VXWORKS
 #include <pthread.h>
+#include <taskLib.h>
+#include <functional>  // TriadThread 생성자에 필요
+#include <memory>      // TriadThread 내부 구현에 필요
+#endif
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+#ifdef __linux__
+#include <pthread.h>
+#endif
+
+namespace triad {
+
+#ifndef RTI_VXWORKS
+/**
+ * @brief 현재 스레드에 이름을 설정합니다. (VxWorks 제외)
+ * @param name 스레드 이름 (최대 15자 권장)
+ * @note VxWorks에서는 TriadThread 생성 시 이름을 지정하세요.
+ */
+inline void set_thread_name(const char* name) {
+#if defined(_WIN32)
+    // Windows 10 1607+ / Server 2016+
+    int len = MultiByteToWideChar(CP_UTF8, 0, name, -1, NULL, 0);
+    if (len > 0) {
+        std::wstring wname(len, 0);
+        MultiByteToWideChar(CP_UTF8, 0, name, -1, &wname[0], len);
+        SetThreadDescription(GetCurrentThread(), wname.c_str());
+    }
+#elif defined(__linux__)
+    pthread_setname_np(pthread_self(), name);
+#endif
+}
+#endif // !RTI_VXWORKS
+
+} // namespace triad
+
+#ifdef RTI_VXWORKS
 
 namespace triad {
 
@@ -42,16 +80,20 @@ public:
     ~TriadThread() { /* join은 명시적 호출 요구. 파괴 시 자동 join 하지 않음 */ }
 
     template <typename Fn>
-    explicit TriadThread(Fn&& fn) { start(std::forward<Fn>(fn)); }
+    explicit TriadThread(Fn&& fn, const char* name = nullptr) { start(std::forward<Fn>(fn), name); }
 
     template <typename Fn>
-    void start(Fn&& fn) {
+    void start(Fn&& fn, const char* name = nullptr) {
         cleanup();
         using FType = typename std::decay<Fn>::type;
         holder_.reset(new FnHolderImpl<FType>(std::forward<Fn>(fn)));
         pthread_attr_t attr; pthread_attr_init(&attr);
         // 스택 크기 지정 (실패 시 기본값 사용되나 로그/에러 처리는 상위 레벨에서 가능)
         pthread_attr_setstacksize(&attr, TRIAD_THREAD_STACK_SIZE);
+        // 스레드 이름 설정
+        if (name) {
+            pthread_attr_setname(&attr, const_cast<char*>(name));
+        }
         int rc = pthread_create(&tid_, &attr, &TriadThread::trampoline, holder_.get());
         pthread_attr_destroy(&attr);
         started_ = (rc == 0);
@@ -65,7 +107,9 @@ public:
 private:
     struct FnHolderBase { virtual ~FnHolderBase() = default; virtual void run() = 0; };
     template <typename F> struct FnHolderImpl : FnHolderBase {
-        F f; explicit FnHolderImpl(F&& fn): f(std::move(fn)) {}
+        F f;
+        template <typename T>
+        explicit FnHolderImpl(T&& fn): f(std::forward<T>(fn)) {}
         void run() override { f(); }
     };
 
@@ -84,7 +128,7 @@ private:
 
 } // namespace triad
 
-#else // !__VXWORKS__
+#else // !RTI_VXWORKS
 
 #include <thread>
 namespace triad {

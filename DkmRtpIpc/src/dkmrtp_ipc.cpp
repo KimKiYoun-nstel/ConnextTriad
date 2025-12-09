@@ -6,6 +6,7 @@
 
  */
 #include "dkmrtp_ipc.hpp"
+#include "triad_thread.hpp"
 #include <chrono>
 #include <cstring>
 // 플랫폼별 소켓 포함 및 보조 정의
@@ -129,9 +130,9 @@ namespace dkmrtp {
                 return false;
             running_ = true;
 #ifdef RTI_VXWORKS
-            th_.start([this]{ recv_loop(); }); // 1MB 스택 적용
+            th_.start([this]{ recv_loop(); }, "DA_IPC_Recv"); // 1MB 스택 + 이름 적용
 #else
-            th_ = std::thread(&DkmRtpIpc::recv_loop, this);
+            th_ = std::thread([this]{ triad::set_thread_name("DA_IPC_Recv"); recv_loop(); });
 #endif
             return true;
         }

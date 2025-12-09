@@ -1,4 +1,5 @@
 #include "async/async_event_processor.hpp"
+#include "../../DkmRtpIpc/include/triad_thread.hpp"
 // 현재는 헤더에서 전부 인라인. 유지보수 목적의 cpp 파일만 생성.
 // TODO(next): 큐 용량, 드롭 정책, 메트릭 구현 시 이 cpp에 로직 이동.
 
@@ -26,11 +27,17 @@ void AsyncEventProcessor::start()
 	if (!running_.compare_exchange_strong(expected, true)) return;
 	// VxWorks에서는 TriadThread::start()로 1MB 스택을 적용, 기타 플랫폼은 std::thread 생성
 #ifdef RTI_VXWORKS
-	worker_.start([this] { loop(); });
-	if (cfg_.monitor_sec > 0) monitor_.start([this] { monitor_loop(); });
+	worker_.start([this] { loop(); }, "DA_AsyncWkr");
+	if (cfg_.monitor_sec > 0) monitor_.start([this] { monitor_loop(); }, "DA_AsyncMon");
 #else
-	worker_ = std::thread([this] { loop(); });
-	if (cfg_.monitor_sec > 0) monitor_ = std::thread([this] { monitor_loop(); });
+	worker_ = std::thread([this] { 
+		triad::set_thread_name("DA_AsyncWkr"); 
+		loop(); 
+	});
+	if (cfg_.monitor_sec > 0) monitor_ = std::thread([this] { 
+		triad::set_thread_name("DA_AsyncMon"); 
+		monitor_loop(); 
+	});
 #endif
 	LOG_INF("ASYNC", "start max_q=%zu monitor=%ds drain=%d warn_us=%u", cfg_.max_queue, cfg_.monitor_sec,
 			cfg_.drain_stop, cfg_.exec_warn_us);

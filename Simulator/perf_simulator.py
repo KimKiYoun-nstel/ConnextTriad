@@ -107,20 +107,28 @@ class Simulator:
         self.protocol = None
         self.running = False
         self.sample_cache = {}
+        # corr_id -> asyncio.Future for awaiting responses
+        self._pending: Dict[int, asyncio.Future] = {}
+        self._pending_lock = asyncio.Lock()
 
     async def start(self):
         self.stats.start_time = time.time()
         self.running = True
         
         loop = asyncio.get_running_loop()
+        # Pass simulator (self) into protocol so responses can resolve pending futures
         self.transport, self.protocol = await loop.create_datagram_endpoint(
-            lambda: PerfProtocol(self.stats),
+            lambda: PerfProtocol(self.stats, self),
             remote_addr=(self.config.target_host, self.config.target_port)
         )
         
         logger.info(f"Connected to {self.config.target_host}:{self.config.target_port}")
         
-        # Create Participant first
+        # Startup sequence: hello -> get.qos -> clear -> create_participant
+        await self.send_hello()
+        await self.send_get_qos()
+        await self.clear_dds_entities()
+        # Now create participant after agent has been queried/cleared
         await self.create_participant()
 
         tasks = []
@@ -156,11 +164,100 @@ class Simulator:
                 "qos": "TriadQosLib::DefaultReliable"
             }
         }
+        try:
+            rsp = await self.send_request(req, timeout=2.0)
+            logger.info(f"Sent create_participant for domain {domain}, rsp={rsp}")
+        except Exception as e:
+            logger.error(f"create_participant failed or timed out: {e}")
+        # short pause to allow the agent to finalize participant creation
+        await asyncio.sleep(0.2)
+
+    async def send_request(self, req: dict, timeout: float = 2.0):
+        """Send a request and wait for a response (by corr_id).
+
+        Returns the decoded CBOR response body (usually a dict).
+        Raises TimeoutError on timeout.
+        """
         payload = cbor2.dumps(req)
-        frame = ipc_protocol.pack_frame(payload, ipc_protocol.MSG_FRAME_REQ, random.randint(1, 100000))
-        self.transport.sendto(frame)
-        logger.info(f"Sent create_participant for domain {domain}")
-        await asyncio.sleep(0.5)
+
+        # allocate unique corr_id
+        async with self._pending_lock:
+            corr = None
+            while True:
+                cand = random.randint(1, 2**31 - 1)
+                if cand not in self._pending:
+                    corr = cand
+                    break
+            loop = asyncio.get_running_loop()
+            fut = loop.create_future()
+            self._pending[corr] = fut
+
+        frame = ipc_protocol.pack_frame(payload, ipc_protocol.MSG_FRAME_REQ, corr)
+        try:
+            self.transport.sendto(frame)
+            self.stats.sent_count += 1
+            self.stats.sent_bytes += len(frame)
+        except Exception as e:
+            # cleanup pending
+            async with self._pending_lock:
+                self._pending.pop(corr, None)
+            raise
+
+        try:
+            res = await asyncio.wait_for(fut, timeout)
+            return res
+        finally:
+            async with self._pending_lock:
+                self._pending.pop(corr, None)
+
+    def _on_response(self, corr_id: int, payload_bytes: bytes):
+        """Internal: called by protocol when a response frame is received."""
+        try:
+            obj = cbor2.loads(payload_bytes)
+        except Exception as e:
+            logger.error(f"Failed to decode response payload for corr_id={corr_id}: {e}")
+            obj = None
+
+        # resolve future if waiting
+        fut = None
+        # no need for lock here — best-effort
+        fut = self._pending.get(corr_id)
+        if fut and not fut.done():
+            fut.set_result(obj)
+
+    async def clear_dds_entities(self):
+        """Send a 'clear' request to remove DDS entities on the agent side.
+
+        Uses the IPC JSON protocol: {"op":"clear","target":{"kind":"dds_entities"}}
+        This helps avoid duplicate entities when running the simulator repeatedly.
+        """
+        req = {
+            "op": "clear",
+            "target": { "kind": "dds_entities" }
+        }
+        try:
+            rsp = await self.send_request(req, timeout=3.0)
+            logger.info(f"Sent clear request for DDS entities, rsp={rsp}")
+        except Exception as e:
+            logger.error(f"Failed to send clear request or timed out: {e}")
+
+    async def send_hello(self):
+        """Send a hello request per IPC protocol: {"op":"hello"}."""
+        req = {"op": "hello"}
+        try:
+            rsp = await self.send_request(req, timeout=1.0)
+            logger.info(f"Sent hello request, rsp={rsp}")
+        except Exception as e:
+            logger.error(f"Failed to send hello or timed out: {e}")
+
+    async def send_get_qos(self):
+        """Send a get.qos request per IPC protocol: {"op":"get","target":{"kind":"qos"}}."""
+        req = {"op": "get", "target": {"kind": "qos"}, "args": {"include_builtin": True, "detail": False}}
+        try:
+            rsp = await self.send_request(req, timeout=2.0)
+            logger.info(f"Sent get.qos request, rsp keys={list(rsp.keys()) if isinstance(rsp, dict) else type(rsp)}")
+        except Exception as e:
+            logger.error(f"Failed to send get.qos or timed out: {e}")
 
     async def setup_reader(self, r_conf: dict):
         # Send subscription request
@@ -179,10 +276,11 @@ class Simulator:
                 "qos": "TriadQosLib::DefaultReliable"
             }
         }
-        payload = cbor2.dumps(req)
-        frame = ipc_protocol.pack_frame(payload, ipc_protocol.MSG_FRAME_REQ, random.randint(1, 100000))
-        self.transport.sendto(frame)
-        logger.info(f"Sent subscription for {r_conf['topic']}")
+        try:
+            rsp = await self.send_request(req, timeout=2.0)
+            logger.info(f"Sent subscription for {r_conf['topic']}, rsp={rsp}")
+        except Exception as e:
+            logger.error(f"Subscription request failed for {r_conf['topic']}: {e}")
 
     async def writer_task(self, w_conf: dict):
         topic = w_conf["topic"]
@@ -207,12 +305,11 @@ class Simulator:
             }
         }
         try:
-            payload = cbor2.dumps(create_req)
-            frame = ipc_protocol.pack_frame(payload, ipc_protocol.MSG_FRAME_REQ, random.randint(1, 100000))
-            self.transport.sendto(frame)
-            logger.info(f"Sent create_writer for {topic}")
-            # Give it a moment to be processed
-            await asyncio.sleep(0.2)
+            rsp = await self.send_request(create_req, timeout=2.0)
+            logger.info(f"Sent create_writer for {topic}, rsp={rsp}")
+            if not (isinstance(rsp, dict) and rsp.get("ok", False)):
+                logger.error(f"create_writer failed for {topic}: {rsp}")
+                return
         except Exception as e:
             logger.error(f"Failed to create writer for {topic}: {e}")
             return
@@ -270,8 +367,9 @@ class Simulator:
             return {}
 
 class PerfProtocol(asyncio.DatagramProtocol):
-    def __init__(self, stats: Stats):
+    def __init__(self, stats: Stats, simulator: Simulator):
         self.stats = stats
+        self.simulator = simulator
 
     def connection_made(self, transport):
         self.transport = transport
@@ -282,13 +380,20 @@ class PerfProtocol(asyncio.DatagramProtocol):
         
         try:
             hdr = ipc_protocol.unpack_header(data)
+            payload = data[ipc_protocol.HEADER_LEN:ipc_protocol.HEADER_LEN + hdr["length"]]
             if hdr["type"] == ipc_protocol.MSG_FRAME_EVT:
-                payload = data[ipc_protocol.HEADER_LEN:ipc_protocol.HEADER_LEN + hdr["length"]]
                 evt = cbor2.loads(payload)
                 if isinstance(evt, dict):
                     topic = evt.get("topic")
                     if topic:
                         self.stats.topic_rx[topic] = self.stats.topic_rx.get(topic, 0) + 1
+            elif hdr["type"] == ipc_protocol.MSG_FRAME_RSP:
+                # dispatch response to simulator
+                try:
+                    self.simulator._on_response(hdr["corr_id"], payload)
+                except Exception:
+                    # swallow to keep perf loop running
+                    pass
         except Exception:
             # For perf test, ignore parse errors or count them
             pass
@@ -319,6 +424,36 @@ async def main_async():
         writers=conf_data.get("writers", []),
         readers=conf_data.get("readers", [])
     )
+
+    # Normalize sample file paths: resolve relative paths against the config file directory.
+    # Try multiple candidates to avoid duplicating the config dir (e.g. "Simulator/Simulator/...").
+    cfg_dir = args.config.parent
+    for w in config.writers:
+        sf = w.get("sample_file")
+        if not sf:
+            continue
+        p = Path(sf)
+        if p.is_absolute():
+            # Absolute path provided — leave as-is
+            continue
+
+        # Candidate resolutions (ordered):
+        #  1) relative to the config file directory (cfg_dir / sf)
+        #  2) relative to the parent of config dir (cfg_dir.parent / sf)
+        #     — this handles cases where sf already contains the config dir name
+        #  3) as given (relative to current working directory)
+        candidates = [cfg_dir / sf, cfg_dir.parent / sf, Path(sf), Path.cwd() / sf]
+        resolved_path = None
+        for c in candidates:
+            if c.exists():
+                resolved_path = c.resolve()
+                break
+
+        if resolved_path:
+            w["sample_file"] = str(resolved_path)
+        else:
+            # Fallback: use cfg_dir / sf (best-effort absolute path)
+            w["sample_file"] = str((cfg_dir / sf).resolve())
 
     sim = Simulator(config)
     

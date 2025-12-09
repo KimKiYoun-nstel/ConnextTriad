@@ -1,4 +1,5 @@
 #include "app_config.hpp"
+#include "../../DkmRtpIpc/include/triad_thread.hpp"
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -60,7 +61,11 @@ void AppConfig::start_watching(const std::string& path) {
     if (watching_) return;
     config_path_ = path;
     watching_ = true;
-    watch_thread_ = std::thread([this]() {
+    
+    auto watch_func = [this]() {
+#ifndef RTI_VXWORKS
+        triad::set_thread_name("DA_CfgWatch");
+#endif
         std::string last_level;
         {
             std::lock_guard<std::mutex> lock(config_mutex_);
@@ -84,7 +89,13 @@ void AppConfig::start_watching(const std::string& path) {
                 }
             }
         }
-    });
+    };
+
+#ifdef RTI_VXWORKS
+    watch_thread_.start(watch_func, "DA_CfgWatch");
+#else
+    watch_thread_ = std::thread(watch_func);
+#endif
 }
 
 void AppConfig::stop_watching() {

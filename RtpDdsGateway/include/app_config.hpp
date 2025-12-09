@@ -7,6 +7,7 @@
 #include <atomic>
 
 #include "triad_log.hpp"
+#include "triad_thread.hpp"
 
 class AppConfig {
 public:
@@ -62,7 +63,7 @@ private:
     LogConfig logging_;
 
     std::string config_path_;
-    std::thread watch_thread_;
+    triad::TriadThread watch_thread_;
     std::atomic<bool> watching_ = false;
     mutable std::mutex config_mutex_;
 };

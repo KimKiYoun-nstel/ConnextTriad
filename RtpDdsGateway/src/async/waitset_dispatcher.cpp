@@ -1,5 +1,6 @@
 #include "../../include/async/waitset_dispatcher.hpp"
 #include "../../DkmRtpIpc/include/triad_log.hpp"
+#include "../../DkmRtpIpc/include/triad_thread.hpp"
 
 namespace rtpdds {
 namespace async {
@@ -18,8 +19,19 @@ void WaitSetDispatcher::start() {
     if (running_) return;
     running_ = true;
 
-    monitor_thread_ = std::thread(&WaitSetDispatcher::monitor_thread_loop, this);
-    data_thread_ = std::thread(&WaitSetDispatcher::data_thread_loop, this);
+#ifdef RTI_VXWORKS
+    monitor_thread_.start([this]{ monitor_thread_loop(); }, "DA_WaitMon");
+    data_thread_.start([this]{ data_thread_loop(); }, "DA_WaitData");
+#else
+    monitor_thread_ = std::thread([this]{ 
+        triad::set_thread_name("DA_WaitMon"); 
+        monitor_thread_loop(); 
+    });
+    data_thread_ = std::thread([this]{ 
+        triad::set_thread_name("DA_WaitData"); 
+        data_thread_loop(); 
+    });
+#endif
     
     LOG_INF("WaitSetDispatcher", "Started monitor and data threads");
 }
@@ -128,6 +140,9 @@ void WaitSetDispatcher::detach_data(IDdsEventHandler* handler) {
 }
 
 void WaitSetDispatcher::monitor_thread_loop() {
+#ifndef RTI_VXWORKS
+    triad::set_thread_name("DA_Mon");
+#endif
     while (running_) {
         try {
             // 1초 타임아웃으로 대기 (RTI Modern C++ API: wait() returns ConditionSeq)
@@ -162,6 +177,9 @@ void WaitSetDispatcher::monitor_thread_loop() {
 }
 
 void WaitSetDispatcher::data_thread_loop() {
+#ifndef RTI_VXWORKS
+    triad::set_thread_name("DA_Data");
+#endif
     while (running_) {
         try {
             dds::core::cond::WaitSet::ConditionSeq active_conditions = 

@@ -5,6 +5,7 @@
 #include <mutex>
 #include <atomic>
 #include <unordered_map>
+#include "triad_thread.hpp"
 #include "../dds_type_registry.hpp" // IDdsEventHandler 정의 포함
 
 namespace rtpdds {
@@ -68,14 +69,14 @@ private:
     std::atomic<bool> running_{false};
     
     // Monitor Thread 관련
-    std::thread monitor_thread_;
+    triad::TriadThread monitor_thread_;
     dds::core::cond::WaitSet monitor_waitset_;
     dds::core::cond::GuardCondition monitor_guard_; // Wakeup용
     std::mutex monitor_mutex_;
     std::unordered_map<dds::core::cond::Condition, IDdsEventHandler*> monitor_handlers_;
 
     // Data Thread 관련
-    std::thread data_thread_;
+    triad::TriadThread data_thread_;
     dds::core::cond::WaitSet data_waitset_;
     dds::core::cond::GuardCondition data_guard_; // Wakeup용
     std::mutex data_mutex_;
