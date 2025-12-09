@@ -13,4 +13,22 @@ if not exist "%WRENV%" (
 
 REM ==== 2) VxWorks 환경이 적용된 cmd 창을 연다 ====
 REM   -p vxworks-23.03 부분도 설치된 프로파일 이름에 맞게 필요하면 수정
-"%WRENV%" cmd /k "set VSB_DIR=D:\WindRiver\workspace_test\test_vsb& set WIND_CC_SYSROOT=D:\WindRiver\workspace_test\test_vsb& set WIND_BASE=D:\WindRiver\vxworks\23.03& set NDDSHOME_CTL=D:\rti_connext_dds-7.3.1& title VxWorks Dev Shell& set CLANGXX=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64\bin\clang++.exe& set LLVM_ROOT=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64"
+REM   환경 변수 설정을 위한 임시 배치 파일을 생성하여 실행합니다.
+REM   이렇게 하면 복잡한 인용부호나 줄바꿈 문제를 피할 수 있습니다.
+
+set "INIT_BAT=%TEMP%\vx_init_%RANDOM%.bat"
+
+(
+    echo @echo off
+    echo set VSB_DIR=D:\WindRiver\workspace_test
+    echo set WIND_CC_SYSROOT=D:\WindRiver\workspace_test
+    echo set WIND_BASE=D:\WindRiver\vxworks\23.03
+    echo set NDDSHOME_CTL=D:\rti_connext_dds-7.3.1
+    echo set CLANGXX=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64\bin\clang++.exe
+    echo set LLVM_ROOT=D:\WindRiver\compilers\llvm-15.0.0.1\WIN64
+    echo title VxWorks Dev Shell
+    echo echo [INFO] VxWorks Environment Configured.
+) > "%INIT_BAT%"
+
+REM   임시 배치 파일을 실행하고 나서 삭제하도록 합니다.
+"%WRENV%" cmd /k "call "%INIT_BAT%" & del "%INIT_BAT%""

@@ -45,6 +45,24 @@ if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8 /EHsc /bigobj)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
+  
+  # VxWorks System Header Warnings Suppression
+  if(IS_VXWORKS)
+    add_compile_options(
+      -Wno-unused-local-typedef
+      -Wno-unused-parameter
+      -Wno-missing-field-initializers
+      -Wno-reorder
+      -Wno-deprecated-copy
+      -Wno-deprecated-builtins
+      -Wno-c11-extensions
+      -Wno-user-defined-literals
+      -Wno-gnu-null-pointer-arithmetic
+      -Wno-misleading-indentation
+      -Wno-atomic-alignment
+      -Wno-delete-non-abstract-non-virtual-dtor
+    )
+  endif()
 endif()
 
 # Silence Clang-specific warning about the GNU extension of zero-argument
@@ -53,28 +71,8 @@ endif()
 # suppression so other warnings remain enabled.
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   add_compile_options(-Wno-gnu-zero-variadic-macro-arguments)
-  # If building for VxWorks and the toolchain exposed the Makefile-style
-  # common CXX flags, apply only the non-include flags globally. Include
-  # directories ("-I...") are left to each subproject/target to avoid
-  # duplicating paths that are already set by the subprojects (e.g. IdlKit).
-  if(IS_VXWORKS AND DEFINED TOOLCHAIN_CXXFLAGS_COMMON)
-    string(REPLACE "\n" " " _toolchain_cxxflags "${TOOLCHAIN_CXXFLAGS_COMMON}")
-    string(REGEX REPLACE "[ ]+" " " _toolchain_cxxflags "${_toolchain_cxxflags}")
-    # split into list
-    string(REPLACE " " ";" _flags_list "${_toolchain_cxxflags}")
-    set(_toolchain_other_flags)
-    foreach(_f IN LISTS _flags_list)
-      if(_f MATCHES "^-I")
-        # skip include flags here
-      else()
-        list(APPEND _toolchain_other_flags "${_f}")
-      endif()
-    endforeach()
-    if(_toolchain_other_flags)
-      add_compile_options(${_toolchain_other_flags})
-      message(STATUS "Added TOOLCHAIN_CXXFLAGS_COMMON non-include flags to global compile options (Clang + VxWorks)")
-    endif()
-  endif()
+  # VxWorks 빌드 시 Toolchain 파일에서 이미 필요한 플래그를 CMAKE_CXX_FLAGS_INIT에
+  # 설정했으므로, 여기서 별도로 TOOLCHAIN_CXXFLAGS_COMMON을 파싱할 필요가 없습니다.
 endif()
 
 # --- [CHANGED] RTI_UNIX / RTI_VXWORKS 정의 분리 -----------------------
@@ -82,11 +80,8 @@ endif()
 if(UNIX AND NOT IS_VXWORKS)
   add_compile_definitions(RTI_UNIX=1)
   message(STATUS "UNIX detected (non-VxWorks): enabling RTI_UNIX compile definition")
-elseif(IS_VXWORKS)
-  # VxWorks: RTI_VXWORKS 매크로만 사용하여 통일
-  add_compile_definitions(RTI_VXWORKS=1)
-  message(STATUS "VxWorks detected: enabling RTI_VXWORKS compile definition (unified)")
 endif()
+# VxWorks의 경우 Toolchain 파일에서 이미 RTI_VXWORKS 등을 정의했으므로 추가 작업 불필요
 # ----------------------------------------------------------------------
 
 # --- nlohmann_json 의존성 처리 ---
@@ -109,9 +104,9 @@ endif()
 # Some VxWorks public headers rely on the macro `_VSB_CONFIG_FILE` to
 # include the generated config header. Add a global compile definition
 # before any subdirectories/targets are created so every TU receives it.
+# (Toolchain 파일에서 이미 정의되었으므로 여기서는 중복 정의하지 않음)
 if(IS_VXWORKS AND DEFINED VSB_SYSROOT)
-  add_compile_definitions(_VSB_CONFIG_FILE="${VSB_SYSROOT}/h/config/vsbConfig.h")
-  message(STATUS "Added global compile definition _VSB_CONFIG_FILE='${VSB_SYSROOT}/h/config/vsbConfig.h'")
+  # Toolchain에서 처리됨
 endif()
 
 # 순서 중요: IdlKit 먼저

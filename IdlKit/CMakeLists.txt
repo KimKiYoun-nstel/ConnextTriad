@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(IdlKit)
+project(IdlKit LANGUAGES CXX)
 
 find_package(Python3 REQUIRED)
 
@@ -7,7 +7,10 @@ find_package(Python3 REQUIRED)
 # VxWorks(CTL) 빌드일 때는 NDDSHOME_CTL/bin에서, 그 외에는 NDDSHOME/bin에서 찾는다.
 if(NOT DEFINED RTIDDSGEN_EXECUTABLE OR RTIDDSGEN_EXECUTABLE STREQUAL "")
   if(IS_VXWORKS)
-    if(DEFINED ENV{NDDSHOME_CTL})
+    # Toolchain에서 설정한 RTI_ROOT 사용
+    if(DEFINED RTI_ROOT)
+      set(RTI_SEARCH_PATH "${RTI_ROOT}/bin")
+    elseif(DEFINED ENV{NDDSHOME_CTL})
       set(RTI_SEARCH_PATH "$ENV{NDDSHOME_CTL}/bin")
     else()
       set(RTI_SEARCH_PATH "")
@@ -23,7 +26,13 @@ if(NOT DEFINED RTIDDSGEN_EXECUTABLE OR RTIDDSGEN_EXECUTABLE STREQUAL "")
   # Prefer the requested RTI install explicitly via HINTS so that CTL/NDDSHOME
   # bin directories are searched before the system PATH. If RTI_SEARCH_PATH
   # is empty the HINTS are ignored and normal PATH search still applies.
-  if(IS_VXWORKS AND DEFINED ENV{NDDSHOME_CTL})
+  if(IS_VXWORKS AND DEFINED RTI_ROOT)
+    find_program(RTIDDSGEN_EXECUTABLE
+      NAMES rtiddsgen rtiddsgen.bat
+      HINTS "${RTI_ROOT}/bin"
+      PATHS ${RTI_SEARCH_PATH}
+    )
+  elseif(IS_VXWORKS AND DEFINED ENV{NDDSHOME_CTL})
     find_program(RTIDDSGEN_EXECUTABLE
       NAMES rtiddsgen rtiddsgen.bat
       HINTS "$ENV{NDDSHOME_CTL}/bin"
@@ -147,7 +156,9 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
 endif()
 # --- RTI include path for generated code ---
 if(IS_VXWORKS)
-  if(DEFINED ENV{NDDSHOME_CTL})
+  if(DEFINED RTI_ROOT)
+    set(_RTI_IDL_INCLUDE "${RTI_ROOT}/include")
+  elseif(DEFINED ENV{NDDSHOME_CTL})
     set(_RTI_IDL_INCLUDE "$ENV{NDDSHOME_CTL}/include")
   else()
     message(FATAL_ERROR "VxWorks/CTL build: NDDSHOME_CTL must be set for IdlKit")
@@ -172,7 +183,8 @@ endif()
 # RTI 플랫폼 매크로
 if(IS_VXWORKS)
   # VxWorks + clang(llvm) 환경
-  target_compile_definitions(DdsTypes PRIVATE RTI_VXWORKS RTI_CLANG)
+  # Toolchain에서 이미 정의되었으므로 중복 정의하지 않음
+  # target_compile_definitions(DdsTypes PRIVATE RTI_VXWORKS RTI_CLANG)
 elseif(NOT WIN32)
   # Linux/기타 Unix
   target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
