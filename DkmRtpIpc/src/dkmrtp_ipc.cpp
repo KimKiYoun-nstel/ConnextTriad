@@ -172,12 +172,12 @@ namespace dkmrtp {
 #ifdef _WIN32
                 DWORD sent = 0;
                 WSABUF bufs[1];
-                bufs[0].buf = reinterpret_cast<char *>(packet.data());
+                bufs[0].buf = reinterpret_cast<char *>(send_buf_.data());
                 bufs[0].len = (ULONG)total_len;
                 int rc = WSASend(s, bufs, 1, &sent, 0, nullptr, nullptr);
                 return rc == 0 && sent == (DWORD)total_len;
 #else
-                int rc = send(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0);
+                int rc = send(s, reinterpret_cast<const char *>(send_buf_.data()), (int)total_len, 0);
                 return rc == (int)total_len;
 #endif
             } else {
@@ -189,13 +189,14 @@ namespace dkmrtp {
                 peer.sin_port = last_peer_.port_be;
 
                 // 헤더+페이로드 합치기
+                // Phase 1-1: 재사용 버퍼 사용 (매 전송마다 할당 제거)
                 size_t total_len = sizeof(Header) + len;
-                std::vector<uint8_t> packet(total_len);
-                memcpy(packet.data(), &h, sizeof(Header));
+                send_buf_.resize(total_len);
+                memcpy(send_buf_.data(), &h, sizeof(Header));
                 if (payload && len)
-                    memcpy(packet.data() + sizeof(Header), payload, len);
+                    memcpy(send_buf_.data() + sizeof(Header), payload, len);
 
-                int rc = sendto(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0,
+                int rc = sendto(s, reinterpret_cast<const char *>(send_buf_.data()), (int)total_len, 0,
                                 reinterpret_cast<sockaddr *>(&peer), sizeof(peer));
                 if (rc == SOCKET_ERROR || rc != (int)total_len)
                     return false;

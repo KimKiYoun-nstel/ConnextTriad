@@ -43,6 +43,8 @@ endif()
 
 if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8 /EHsc /bigobj)
+  # Prevent legacy winsock.h from being included via windows.h; we use winsock2.h explicitly when needed.
+  add_compile_definitions(_WINSOCKAPI_=1)
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
   

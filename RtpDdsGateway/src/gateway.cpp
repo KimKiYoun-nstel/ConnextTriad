@@ -38,13 +38,36 @@ GatewayApp::GatewayApp()
     // 단일 핸들러 주입
     async::Handlers hs;
     hs.sample = [this](const async::SampleEvent& ev) {
-        LOG_FLOW("sample exec topic=%s type=%s seq=%llu",
-                ev.topic.c_str(), ev.type_name.c_str(), static_cast<unsigned long long>(ev.sequence_id));
+        // Phase 1-2: 큐 대기 시간 측정
+        auto now = std::chrono::steady_clock::now();
+        auto queue_delay_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - ev.received_time).count();
+        
+        if (queue_delay_us > 5000) {  // 5ms 이상 대기 시 경고
+            LOG_WRN("ASYNC", "high_queue_delay sample topic=%s delay_us=%lld",
+                    ev.topic.c_str(), (long long)queue_delay_us);
+        }
+        
+        LOG_FLOW("sample exec topic=%s type=%s seq=%llu queue_delay_us=%lld",
+                ev.topic.c_str(), ev.type_name.c_str(), 
+                static_cast<unsigned long long>(ev.sequence_id),
+                (long long)queue_delay_us);
         if (ipc_) ipc_->emit_evt_from_sample(ev);
     };
     hs.command = [this](const async::CommandEvent& ev) {
-        LOG_FLOW("cmd exec corr_id=%u size=%zu route=%s",
-                ev.corr_id, ev.body.size(), ev.route.c_str());
+        // Phase 1-2: 큐 대기 시간 측정
+        auto now = std::chrono::steady_clock::now();
+        auto queue_delay_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            now - ev.received_time).count();
+        
+        if (queue_delay_us > 5000) {  // 5ms 이상 대기 시 경고
+            LOG_WRN("ASYNC", "high_queue_delay cmd corr_id=%u delay_us=%lld",
+                    ev.corr_id, (long long)queue_delay_us);
+        }
+        
+        LOG_FLOW("cmd exec corr_id=%u size=%zu route=%s queue_delay_us=%lld",
+                ev.corr_id, ev.body.size(), ev.route.c_str(),
+                (long long)queue_delay_us);
         if (ipc_) ipc_->process_request(ev);
     };
     hs.error = [](const std::string& what, const std::string& where) {

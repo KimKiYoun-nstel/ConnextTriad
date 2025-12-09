@@ -112,12 +112,39 @@ void AsyncEventProcessor::loop()
 
 void AsyncEventProcessor::monitor_loop()
 {
+	Stats last_stats{};  // Phase 1-3: 이전 스냅샷 저장
+	
 	while (running_.load()) {
 		std::this_thread::sleep_for(std::chrono::seconds(cfg_.monitor_sec));
 		auto st = get_stats();
-		LOG_INF("ASYNC", "stats enq(s/c/e)=(%llu/%llu/%llu) exec=%llu drop=%llu max_depth=%zu cur_depth=%zu",
-				(unsigned long long)st.enq_sample, (unsigned long long)st.enq_cmd, (unsigned long long)st.enq_err,
-				(unsigned long long)st.exec_jobs, (unsigned long long)st.dropped, st.max_depth, st.cur_depth);
+		
+		// Phase 1-3: 초당 비율 계산
+		uint64_t delta_sample = st.enq_sample - last_stats.enq_sample;
+		uint64_t delta_cmd = st.enq_cmd - last_stats.enq_cmd;
+		uint64_t delta_err = st.enq_err - last_stats.enq_err;
+		uint64_t delta_exec = st.exec_jobs - last_stats.exec_jobs;
+		uint64_t delta_drop = st.dropped - last_stats.dropped;
+		
+		uint64_t rate_enq_sample = delta_sample / cfg_.monitor_sec;
+		uint64_t rate_enq_cmd = delta_cmd / cfg_.monitor_sec;
+		uint64_t rate_exec = delta_exec / cfg_.monitor_sec;
+		uint64_t rate_drop = delta_drop / cfg_.monitor_sec;
+		
+		LOG_INF("ASYNC", "stats rate(sample/s=%llu cmd/s=%llu exec/s=%llu drop/s=%llu) "
+					 "total enq(s/c/e)=(%llu/%llu/%llu) exec=%llu drop=%llu max_depth=%zu cur_depth=%zu",
+				(unsigned long long)rate_enq_sample,
+				(unsigned long long)rate_enq_cmd,
+				(unsigned long long)rate_exec,
+				(unsigned long long)rate_drop,
+				(unsigned long long)st.enq_sample,
+				(unsigned long long)st.enq_cmd,
+				(unsigned long long)st.enq_err,
+				(unsigned long long)st.exec_jobs,
+				(unsigned long long)st.dropped,
+				st.max_depth,
+				st.cur_depth);
+		
+		last_stats = st;  // Phase 1-3: 현재 값 저장
 	}
 }
 

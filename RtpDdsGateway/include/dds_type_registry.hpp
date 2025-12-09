@@ -306,17 +306,33 @@ struct ReaderHolder : IReaderHolder {
     void process_data() override {
         if (!sample_callback_) return;
         
+        // thread_local 풀: 단일 워커 환경에서 재사용
+        thread_local std::vector<std::shared_ptr<T>> sample_pool;
+        thread_local size_t pool_index = 0;
+
         // take()로 데이터 가져오기
         dds::sub::LoanedSamples<T> samples = reader->take();
         for (const auto& sample : samples) {
             if (sample.info().valid()) {
-                // heap에 소유 복사하여 shared_ptr<void>로 전달
-                auto sp = std::make_shared<T>(sample.data());
+                // 풀에서 재사용 가능한 샘플 확보
+                std::shared_ptr<T> sp;
+                if (pool_index < sample_pool.size()) {
+                    sp = sample_pool[pool_index++];
+                    *sp = sample.data(); // 기존 객체 재사용
+                } else {
+                    sp = std::make_shared<T>(sample.data());
+                    sample_pool.push_back(sp);
+                    ++pool_index;
+                }
+                
                 std::shared_ptr<void> pv = sp;
                 // 콜백 호출 (Context Switching은 콜백 내부에서 처리됨)
                 sample_callback_(topic_name, dds::topic::topic_type_name<T>::value(), AnyData(pv));
             }
         }
+        
+        // 처리 완료 후 풀 인덱스 리셋 (다음 호출에서 재사용)
+        pool_index = 0;
     }
 
     // [IDdsEventHandler 구현] 상태 처리 (공통 로직)
