@@ -1,0 +1,40 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_healthStatus": "L_HealthStatus_OPERATIONAL",
+  "A_currentState": "L_Monitored_Entity_StateType_ON",
+  "A_specification_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_monitoredCharacteristics_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_failureEvents_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_installedSoftware_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_preventativeMaintenanceRecomendedEvents_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ]
+}

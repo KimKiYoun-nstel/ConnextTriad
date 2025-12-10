@@ -2,48 +2,60 @@
     "host": "127.0.0.1",
     "port": 25001,
     "duration": 300,
+    "participant_qos": "TriadQosLib::DefaultReliable",
+    "default_qos": "TriadQosLib::DefaultReliable",
+    "default_hz": 200,
+    "default_sample_dir": "samples",
     "writers": [
         {
             "topic": "Actual_Alarm",
             "type": "P_Alarms_PSM::C_Actual_Alarm",
-            "hz": 200,
-            "sample_file": "samples/Actual_Alarm.json"
+            "hz": "@default",
+            "qos": "@default",
+            "sample_file": "@type"
         },
         {
             "topic": "Cannon_Actuator_Control",
             "type": "P_NSTEL::C_Cannon_Actuator_Control",
-            "hz": 200,
-            "sample_file": "samples/Cannon_Actuator_Control.json"
+            "hz": "@default",
+            "qos": "@default",
+            "sample_file": "@type"
         },
         {
             "topic": "Monitored_Entity_runBIT",
             "type": "P_UCMS::C_Monitored_Entity_runBIT",
-            "hz": 200,
-            "sample_file": "samples/Monitored_Entity_runBIT.json"
+            "hz": "@default",
+            "qos": "@default",
+            "sample_file": "@type"
         },
         {
             "topic": "AlarmMsg",
             "type": "C_AlarmMsg",
-            "hz": 200,
-            "sample_file": "samples/alarm_msg.json"
+            "hz": "@default",
+            "qos": "@default",
+            "sample_file": "@type"
         }
     ],
     "readers": [
         {
             "topic": "Actual_Alarm",
-            "type": "P_Alarms_PSM::C_Actual_Alarm"
+            "type": "P_Alarms_PSM::C_Actual_Alarm",
+            "qos": "@default"
         },
         {
             "topic": "Cannon_Actuator_Control",
-            "type": "P_NSTEL::C_Cannon_Actuator_Control"
+            "type": "P_NSTEL::C_Cannon_Actuator_Control",
+            "qos": "@default"
         },
         {
             "topic": "Monitored_Entity_runBIT",
-            "type": "P_UCMS::C_Monitored_Entity_runBIT"
+            "type": "P_UCMS::C_Monitored_Entity_runBIT",
+            "qos": "@default"
         },
         {
             "topic": "AlarmMsg",
-            "type": "C_AlarmMsg"
+            "type": "C_AlarmMsg",
+            "qos": "@default"
         }
     ]
 }

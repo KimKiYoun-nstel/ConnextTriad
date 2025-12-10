@@ -1,0 +1,27 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_componentName": "componentName",
+  "A_nature": "nature",
+  "A_subsystemName": "subsystemName",
+  "A_measure": "measure",
+  "A_dateTimeRaised": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_alarmState": "L_Actual_Alarm_StateType_Unacknowledged",
+  "A_raisingCondition_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_alarmCategory_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

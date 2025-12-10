@@ -1,0 +1,37 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_alarmCategoryName": "L_AlarmCategoryType_Warning",
+  "A_alarmCategoryAbbreviation": "alarmCategoryAbbreviation",
+  "A_isAutoAcknowledged": false,
+  "A_automaticAcknowledgeTimeout": {
+    "A_seconds": 1,
+    "A_nanoseconds": 1
+  },
+  "A_hideOnAcknowledge": false,
+  "A_isRepeated": false,
+  "A_repeatTimeout": {
+    "A_seconds": 1,
+    "A_nanoseconds": 1
+  },
+  "A_categorisedConditionSpecification_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_notifyingToneSpecification_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_alarmCategory_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

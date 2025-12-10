@@ -1,0 +1,30 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_cumulativeMonitoredCharacteristicsOutputSupported": false,
+  "A_failureStandardFaultCodeSupported": false,
+  "A_failureProprietaryFaultCodeSupported": false,
+  "A_failureDescriptionSupported": false,
+  "A_failureCauseDescriptionSupported": false,
+  "A_failureOperationalConsequenceDescriptionSupported": false,
+  "A_failureOperatorActionDescriptionSupported": false,
+  "A_failureMaintenanceActionDescriptionSupported": false,
+  "A_failureComplementaryInformationSupported": false,
+  "A_failureDocumentationURISupported": false,
+  "A_installationDateTime": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_specifiedMonitoredEntities_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ]
+}

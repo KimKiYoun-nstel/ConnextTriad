@@ -30,8 +30,12 @@ class SimConfig:
     target_host: str
     target_port: int
     duration_sec: int
-    writers: List[Dict]  # List of writer configs
-    readers: List[Dict]  # List of reader configs
+    participant_qos: str = "TriadQosLib::DefaultReliable"  # Participant QoS
+    default_qos: str = "TriadQosLib::DefaultReliable"  # Default QoS for writers/readers
+    default_hz: int = 1  # Default publishing rate
+    default_sample_dir: str = "samples"  # Default sample directory
+    writers: List[Dict] = field(default_factory=list)  # List of writer configs
+    readers: List[Dict] = field(default_factory=list)  # List of reader configs
 
 @dataclass
 class Stats:
@@ -111,6 +115,61 @@ class Simulator:
         self._pending: Dict[int, asyncio.Future] = {}
         self._pending_lock = asyncio.Lock()
 
+    def resolve_value(self, value, value_type: str):
+        """참조 문자열(@default, @participant)을 실제 값으로 변환
+        
+        Args:
+            value: 원본 값 (문자열 또는 숫자)
+            value_type: 'qos' 또는 'hz'
+        
+        Returns:
+            해석된 실제 값
+        """
+        if not isinstance(value, str):
+            return value
+        
+        if value == "@default":
+            if value_type == "qos":
+                return self.config.default_qos
+            elif value_type == "hz":
+                return self.config.default_hz
+        elif value == "@participant":
+            if value_type == "qos":
+                return self.config.participant_qos
+        
+        # 일반 문자열 또는 숫자는 그대로 반환
+        return value
+
+    def resolve_sample_file(self, sample_file_value: str, type_name: str) -> str:
+        """sample_file 참조(@type)를 실제 파일 경로로 변환
+        
+        Args:
+            sample_file_value: sample_file 필드 값 ("@type" 또는 직접 경로)
+            type_name: DDS 타입명 (예: "P_Alarms_PSM::C_Actual_Alarm")
+        
+        Returns:
+            해석된 파일 경로
+        
+        Raises:
+            FileNotFoundError: @type 참조 시 파일이 존재하지 않을 경우
+        """
+        if sample_file_value != "@type":
+            # 직접 경로 지정 시 그대로 반환
+            return sample_file_value
+        
+        # @type: type_name에서 파일명 자동 생성
+        # "P_Alarms_PSM::C_Actual_Alarm" → "P_Alarms_PSM__C_Actual_Alarm.json"
+        filename = type_name.replace("::", "__") + ".json"
+        filepath = Path(self.config.default_sample_dir) / filename
+        
+        if not filepath.exists():
+            raise FileNotFoundError(
+                f"Sample file not found for type '{type_name}': {filepath}\n"
+                f"Expected file: {filepath.absolute()}"
+            )
+        
+        return str(filepath)
+
     async def start(self):
         self.stats.start_time = time.time()
         self.running = True
@@ -161,7 +220,7 @@ class Simulator:
             },
             "args": {
                 "domain": domain,
-                "qos": "TriadQosLib::DefaultReliable"
+                "qos": self.config.participant_qos
             }
         }
         try:
@@ -263,6 +322,8 @@ class Simulator:
         # Send subscription request
         # Request format: {"op": "create", "target": {"kind": "reader", "topic": "...", "type": "..."}}
         type_name = r_conf["type"]
+        qos_raw = r_conf.get("qos", "@default")
+        qos = self.resolve_value(qos_raw, "qos")
         req = {
             "op": "create",
             "target": {
@@ -273,7 +334,7 @@ class Simulator:
             "args": {
                 "domain": 0,
                 "subscriber": "sub1",
-                "qos": "TriadQosLib::DefaultReliable"
+                "qos": qos
             }
         }
         try:
@@ -285,9 +346,21 @@ class Simulator:
     async def writer_task(self, w_conf: dict):
         topic = w_conf["topic"]
         type_name = w_conf["type"]
-        hz = w_conf.get("hz", 1)
+        hz_raw = w_conf.get("hz", "@default")
+        hz = self.resolve_value(hz_raw, "hz")
         count_per_sec = w_conf.get("count_per_sec", hz) # Same as hz
-        sample_data = self.load_sample(w_conf.get("sample_file"))
+        
+        # sample_file 참조 해석
+        sample_file_raw = w_conf.get("sample_file", "")
+        try:
+            sample_file = self.resolve_sample_file(sample_file_raw, type_name)
+        except FileNotFoundError as e:
+            logger.error(f"Failed to resolve sample file for {topic}: {e}")
+            return
+        
+        sample_data = self.load_sample(sample_file)
+        qos_raw = w_conf.get("qos", "@default")
+        qos = self.resolve_value(qos_raw, "qos")
         
         # First, create writer entity
         # Protocol: {"op": "create", "target": {"kind": "writer", "topic": "...", "type": "..."}, "args": ...}
@@ -301,7 +374,7 @@ class Simulator:
             "args": {
                 "domain": 0,
                 "publisher": "pub1",
-                "qos": "TriadQosLib::DefaultReliable"
+                "qos": qos
             }
         }
         try:
@@ -421,6 +494,10 @@ async def main_async():
         target_host=conf_data.get("host", "127.0.0.1"),
         target_port=conf_data.get("port", 25000),
         duration_sec=conf_data.get("duration", 10),
+        participant_qos=conf_data.get("participant_qos", "TriadQosLib::DefaultReliable"),
+        default_qos=conf_data.get("default_qos", "TriadQosLib::DefaultReliable"),
+        default_hz=conf_data.get("default_hz", 1),
+        default_sample_dir=conf_data.get("default_sample_dir", "samples"),
         writers=conf_data.get("writers", []),
         readers=conf_data.get("readers", [])
     )

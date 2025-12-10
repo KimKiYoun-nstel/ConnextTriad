@@ -1,0 +1,51 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_name": "name",
+  "A_value": 1.0,
+  "A_type": "L_ThresholdType_MIN",
+  "A_maxDuration": 1,
+  "A_maxNumberOfRepetitions": 1,
+  "A_conditionedThresholds_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_conditioningThreshold_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_concernedCharacteristic_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_specification_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_exceedenceEvents_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_conditionongThreshold_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_conditionedThreshold_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ]
+}

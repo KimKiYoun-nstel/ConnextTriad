@@ -1,0 +1,34 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_subsystemName": "subsystemName",
+  "A_componentName": "componentName",
+  "A_measure": "measure",
+  "A_nature": "nature",
+  "A_alarmConditionCategory": "alarmConditionCategory",
+  "A_alarmConditionName": "alarmConditionName",
+  "A_hasMultipleInstances": false,
+  "A_overrideState": "L_Alarm_Condition_Specification_StateType_condition_overridden",
+  "A_actualAlarmCondition_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_alarmCategory_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_interestedRole_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "A_recipientID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_referenceNum": 1,
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_type": "L_BITType_C_BIT"
+}
