@@ -30,7 +30,7 @@ GatewayApp::GatewayApp()
         /*max_queue*/   8192,
         /*monitor_sec*/ 10,
         /*drain_stop*/  true,
-        /*exec_warn_us*/ 2000 })
+        /*exec_warn_us*/ 1000000 })  // 1000ms (1초)
 {
     // 소비자 스레드 시작
     async_.start();
@@ -43,12 +43,12 @@ GatewayApp::GatewayApp()
         auto queue_delay_us = std::chrono::duration_cast<std::chrono::microseconds>(
             now - ev.received_time).count();
         
-        if (queue_delay_us > 5000) {  // 5ms 이상 대기 시 경고
+        if (queue_delay_us > 500000) {  // 500ms 이상 대기 시 경고
             LOG_WRN("ASYNC", "high_queue_delay sample topic=%s delay_us=%lld",
                     ev.topic.c_str(), (long long)queue_delay_us);
         }
         
-        LOG_FLOW("sample exec topic=%s type=%s seq=%llu queue_delay_us=%lld",
+        LOG_DBG("ASYNC", "sample exec topic=%s type=%s seq=%llu queue_delay_us=%lld",
                 ev.topic.c_str(), ev.type_name.c_str(), 
                 static_cast<unsigned long long>(ev.sequence_id),
                 (long long)queue_delay_us);
@@ -60,12 +60,12 @@ GatewayApp::GatewayApp()
         auto queue_delay_us = std::chrono::duration_cast<std::chrono::microseconds>(
             now - ev.received_time).count();
         
-        if (queue_delay_us > 5000) {  // 5ms 이상 대기 시 경고
+        if (queue_delay_us > 500000) {  // 500ms 이상 대기 시 경고
             LOG_WRN("ASYNC", "high_queue_delay cmd corr_id=%u delay_us=%lld",
                     ev.corr_id, (long long)queue_delay_us);
         }
         
-        LOG_FLOW("cmd exec corr_id=%u size=%zu route=%s queue_delay_us=%lld",
+        LOG_DBG("ASYNC", "cmd exec corr_id=%u size=%zu route=%s queue_delay_us=%lld",
                 ev.corr_id, ev.body.size(), ev.route.c_str(),
                 (long long)queue_delay_us);
         if (ipc_) ipc_->process_request(ev);
@@ -80,7 +80,7 @@ GatewayApp::GatewayApp()
                               const std::string& type_name,
                               const AnyData& data) {
         async::SampleEvent ev{topic, type_name, data};
-    LOG_FLOW("sample enq topic=%s type=%s seq=%llu",
+    LOG_DBG("ASYNC", "sample enq topic=%s type=%s seq=%llu",
         ev.topic.c_str(), ev.type_name.c_str(), static_cast<unsigned long long>(ev.sequence_id));
         async_.post(ev);
     });
@@ -101,7 +101,7 @@ bool GatewayApp::start_server(const std::string &bind, uint16_t port) {
     rx_->activate();
     // IpcAdapter에 post 함수 연결 (엔큐 시점 로깅)
     ipc_->set_command_post([this](const async::CommandEvent& ev){
-        LOG_FLOW("cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
+        LOG_DBG("ASYNC", "cmd enq corr_id=%u size=%zu", ev.corr_id, ev.body.size());
         async_.post(ev);
     });
     // 방어적 재시작 허용

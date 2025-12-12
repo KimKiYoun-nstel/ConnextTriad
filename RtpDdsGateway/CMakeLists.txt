@@ -153,6 +153,11 @@ add_custom_command(TARGET RtpDdsGateway POST_BUILD
 target_compile_definitions(RtpDdsGateway PRIVATE
   IDL_XML_DIR_RELATIVE="types/xml")
 
+# Debug 빌드에서만 RTI 로거 활성화
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_definitions(RtpDdsGateway PRIVATE _RTPDDS_DEBUG)
+endif()
+
 # copy entire qos folder next to the exe so runtime can use ./qos
 add_custom_command(TARGET RtpDdsGateway POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -50,7 +50,7 @@ DdsResult DdsManager::create_participant(int domain_id, const std::string& qos_l
 		LOG_WRN("DDS", "[apply-qos:default] participant domain=%d (lib=%s prof=%s not found)", domain_id, qos_lib.c_str(), qos_profile.c_str());
 	}
 	participants_[domain_id] = participant;
-	LOG_FLOW("participant created domain=%d", domain_id);
+	LOG_INF("DDS", "participant created domain=%d", domain_id);
 	return DdsResult(true, DdsErrorCategory::None,
 					 "Participant created successfully: domain=" + std::to_string(domain_id));
 }
@@ -100,7 +100,7 @@ DdsResult DdsManager::create_publisher_locked(int domain_id, const std::string& 
 			   domain_id, pub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
 	}
 	publishers_[domain_id][pub_name] = publisher;
-	LOG_FLOW("publisher auto-created domain=%d pub=%s", domain_id, pub_name.c_str());
+	LOG_INF("DDS", "publisher auto-created domain=%d pub=%s", domain_id, pub_name.c_str());
 	return DdsResult(true, DdsErrorCategory::None,
 					"Publisher created successfully: domain=" + std::to_string(domain_id) + " pub=" + pub_name);
 }
@@ -150,7 +150,7 @@ DdsResult DdsManager::create_subscriber_locked(int domain_id, const std::string&
 			   domain_id, sub_name.c_str(), qos_lib.c_str(), qos_profile.c_str());
 	}
 	subscribers_[domain_id][sub_name] = subscriber;
-	LOG_FLOW("subscriber auto-created domain=%d sub=%s", domain_id, sub_name.c_str());
+	LOG_INF("DDS", "subscriber auto-created domain=%d sub=%s", domain_id, sub_name.c_str());
 	return DdsResult(true, DdsErrorCategory::None,
 					"Subscriber created successfully: domain=" + std::to_string(domain_id) + " sub=" + sub_name);
 }
@@ -197,7 +197,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 
 	const auto& reg = idlmeta::type_registry();
 	if (reg.find(type_name) == reg.end()) {
-		LOG_ERR("DDS", "create_writer: unknown DDS type: %s", type_name.c_str());
+		LOG_WRN("DDS", "create_writer: unknown DDS type: %s", type_name.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "Unknown DDS type: " + type_name);
 	}
 
@@ -207,7 +207,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 		if (existing_type_it != dom_type_it->second.end()) {
 			const std::string& existing_type = existing_type_it->second;
 			if (existing_type != type_name) {
-				LOG_ERR("DDS", "create_writer: topic='%s' already exists with type='%s', cannot create with type='%s'",
+				LOG_WRN("DDS", "create_writer: topic='%s' already exists with type='%s', cannot create with type='%s'",
 						topic.c_str(), existing_type.c_str(), type_name.c_str());
 				return DdsResult(false, DdsErrorCategory::Logic,
 								"Topic '" + topic + "' already exists with type '" + existing_type + 
@@ -217,7 +217,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 	}
 
 	if (!participants_.count(domain_id)) {
-		LOG_ERR("DDS", "create_writer: participant not found for domain=%d (must be created first)", domain_id);
+		LOG_WRN("DDS", "create_writer: participant not found for domain=%d (must be created first)", domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic,
 						"Participant must be created before writer: domain=" + std::to_string(domain_id));
 	}
@@ -259,7 +259,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 				topic_holder->set_qos(pack->topic);
 				LOG_INF("DDS", "[apply-qos] topic=%s lib=%s prof=%s %s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), summarize_qos(*pack).c_str());
 			} catch (const std::exception& ex) {
-				LOG_ERR("DDS", "[qos-apply-failed] topic=%s lib=%s prof=%s error=%s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), ex.what());
+				LOG_WRN("DDS", "[qos-apply-failed] topic=%s lib=%s prof=%s error=%s", topic.c_str(), qos_lib.c_str(), qos_profile.c_str(), ex.what());
 				LOG_WRN("DDS", "[apply-qos:default] topic=%s (fallback to Default due to qos apply failure)", topic.c_str());
 			}
 		} else {
@@ -285,7 +285,7 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 			LOG_WRN("DDS", "[apply-qos:default] writer topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
 		}
 	} catch (const std::exception& ex) {
-		LOG_ERR("DDS", "create_writer: failed to create writer with requested QoS: %s", ex.what());
+		LOG_WRN("DDS", "create_writer: failed to create writer with requested QoS: %s", ex.what());
 		try {
 			writer_holder = writer_factories[type_name](*publisher, *topic_holder, nullptr);
 			LOG_WRN("DDS", "create_writer: fallback to default writer QoS for topic=%s", topic.c_str());
@@ -332,7 +332,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 
 	const auto& reg = idlmeta::type_registry();
 	if (reg.find(type_name) == reg.end()) {
-		LOG_ERR("DDS", "create_reader: unknown DDS type: %s", type_name.c_str());
+		LOG_WRN("DDS", "create_reader: unknown DDS type: %s", type_name.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "Unknown DDS type: " + type_name);
 	}
 
@@ -342,7 +342,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 		if (existing_type_it != dom_type_it->second.end()) {
 			const std::string& existing_type = existing_type_it->second;
 			if (existing_type != type_name) {
-				LOG_ERR("DDS", "create_reader: topic='%s' already exists with type='%s', cannot create with type='%s'",
+				LOG_WRN("DDS", "create_reader: topic='%s' already exists with type='%s', cannot create with type='%s'",
 						topic.c_str(), existing_type.c_str(), type_name.c_str());
 				return DdsResult(false, DdsErrorCategory::Logic,
 								"Topic '" + topic + "' already exists with type '" + existing_type + 
@@ -352,7 +352,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 	}
 
 	if (!participants_.count(domain_id)) {
-		LOG_ERR("DDS", "create_reader: participant not found for domain=%d (must be created first)", domain_id);
+		LOG_WRN("DDS", "create_reader: participant not found for domain=%d (must be created first)", domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic,
 						"Participant must be created before reader: domain=" + std::to_string(domain_id));
 	}
@@ -413,7 +413,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 			LOG_WRN("DDS", "[apply-qos:default] reader topic=%s (lib=%s prof=%s not found)", topic.c_str(), qos_lib.c_str(), qos_profile.c_str());
 		}
 	} catch (const std::exception& ex) {
-		LOG_ERR("DDS", "create_reader: failed to create reader with requested QoS: %s", ex.what());
+		LOG_WRN("DDS", "create_reader: failed to create reader with requested QoS: %s", ex.what());
 		try {
 			reader_holder = reader_factories[type_name](*subscriber, *topic_holder, nullptr);
 			LOG_WRN("DDS", "create_reader: fallback to default reader QoS for topic=%s", topic.c_str());
@@ -437,7 +437,7 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 	// 이벤트 등록
 	register_reader_event(reader_holder);
 
-	LOG_FLOW("reader created id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, sub_name.c_str(), topic.c_str());
+	LOG_INF("DDS", "reader created id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, sub_name.c_str(), topic.c_str());
 	return DdsResult(
 		true, DdsErrorCategory::None,
 		"Reader created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " sub=" + sub_name + " topic=" + topic);

@@ -40,7 +40,7 @@ void DdsManager::clear_entities()
 	publishers_.clear();
 	participants_.clear();
 
-	LOG_FLOW("clear_entities completed in correct hierarchical order");
+	LOG_INF("DDS", "clear_entities completed in correct hierarchical order");
 
 	// 필요하면 dispatcher를 재시작
 	if (restarted && waitset_dispatcher_) {

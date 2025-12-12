@@ -81,7 +81,7 @@ void IpcAdapter::install_callbacks()
     // === 통합 RPC Envelope (IPC 위 CBOR) ===
     cb.on_request = [this](const dkmrtp::ipc::Header& h, const uint8_t* body, uint32_t len) {
         // 수신 프레임을 비동기 CommandEvent로 변환하여 소비자 스레드로 전달
-    LOG_FLOW("IPC on_request corr_id=%u size=%u", h.corr_id, len);
+    LOG_DBG("IPC", "on_request corr_id=%u size=%u", h.corr_id, len);
 
         // FLOW 로깅: CBOR를 JSON으로 시도 변환(비치명적)
         try {
@@ -125,8 +125,6 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
     const std::string& topic = ev.topic;
     const std::string& type_name = ev.type_name;
     const AnyData& data = ev.data;
-
-    LOG_FLOW("IPC evt build start topic=%s type=%s", topic.c_str(), type_name.c_str());
 
     nlohmann::json data_json;
 
@@ -317,8 +315,6 @@ void IpcAdapter::set_command_post(std::function<void(const async::CommandEvent&)
 // process_request: 소비자 스레드에서 호출되어 명령을 실제 처리한다.
 void IpcAdapter::process_request(const async::CommandEvent& ev) {
     const auto t0 = std::chrono::steady_clock::now();
-    LOG_FLOW("IPC process_request corr_id=%u size=%zu route=%s",
-        ev.corr_id, ev.body.size(), ev.route.c_str());
 
     nlohmann::json rsp;
     // 1단계: CBOR → JSON 파싱 (파싱 실패 시 즉시 종료)
@@ -326,7 +322,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
     try {
         req = nlohmann::json::from_cbor(ev.body);
     } catch (const std::exception& ex) {
-        LOG_ERR("IPC", "request parse failed corr_id=%u error=%s", ev.corr_id, ex.what());
+        LOG_WRN("IPC", "request parse failed corr_id=%u error=%s", ev.corr_id, ex.what());
         rsp = {
             {"ok", false},
             {"err", 7},                 // 기존 parse/error 코드 유지
@@ -346,7 +342,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
         const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
         const auto qd = std::chrono::duration_cast<std::chrono::microseconds>(t0 - ev.received_time).count();
-        LOG_INF("IPC", "process_request done corr_id=%u q_delay(us)=%lld exec(us)=%lld rsp_size=%zu",
+        LOG_DBG("IPC", "process_request done corr_id=%u q_delay(us)=%lld exec(us)=%lld rsp_size=%zu",
                 ev.corr_id, (long long)qd, (long long)dt, out.size());
         return; // 파싱 실패 처리 종료
     }
@@ -355,8 +351,6 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
         const std::string op = req.value("op", "");
         const auto target = req.value("target", nlohmann::json::object());
         const std::string kind = target.value("kind", std::string());
-    const std::string target_str = target.dump();
-    LOG_FLOW("IPC req op=%s kind=%s target=%s", op.c_str(), kind.c_str(), truncate_for_log(target_str, 512).c_str());
 
         bool ok = false;
 
@@ -376,15 +370,13 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-        LOG_FLOW("Calling DdsManager::create_participant(domain=%d, lib=%s, prof=%s)", domain,
-            lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_participant(domain, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "participant created: domain=%d qos=%s", domain, qos.c_str());
                 rsp = { {"ok", true}, {"result", {{"action", "participant created"}, {"domain", domain}}} };
                 ok = true;
             } else {
-                LOG_ERR("IPC", "participant creation failed: domain=%d category=%d reason=%s", domain,
+                LOG_WRN("IPC", "participant creation failed: domain=%d category=%d reason=%s", domain,
                         (int)res.category, res.reason.c_str());
                 rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
@@ -400,15 +392,13 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-        LOG_FLOW("Calling DdsManager::create_publisher(domain=%d, pub=%s, lib=%s, prof=%s)", domain,
-            pub.c_str(), lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_publisher(domain, pub, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "publisher created: domain=%d pub=%s qos=%s", domain, pub.c_str(), qos.c_str());
                 rsp = { {"ok", true}, {"result", {{"action", "publisher created"}, {"domain", domain}, {"publisher", pub}}} };
                 ok = true;
             } else {
-                LOG_ERR("IPC", "publisher creation failed: domain=%d pub=%s category=%d reason=%s", domain,
+                LOG_WRN("IPC", "publisher creation failed: domain=%d pub=%s category=%d reason=%s", domain,
                         pub.c_str(), (int)res.category, res.reason.c_str());
                 rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
@@ -424,15 +414,13 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 lib = qos.substr(0, p);
                 prof = qos.substr(p + 2);
             }
-        LOG_FLOW("Calling DdsManager::create_subscriber(domain=%d, sub=%s, lib=%s, prof=%s)", domain,
-            sub.c_str(), lib.c_str(), prof.c_str());
             DdsResult res = mgr_.create_subscriber(domain, sub, lib, prof);
             if (res.ok) {
                 LOG_INF("IPC", "subscriber created: domain=%d sub=%s qos=%s", domain, sub.c_str(), qos.c_str());
                 rsp = { {"ok", true}, {"result", {{"action", "subscriber created"}, {"domain", domain}, {"subscriber", sub}}} };
                 ok = true;
             } else {
-                LOG_ERR("IPC", "subscriber creation failed: domain=%d sub=%s category=%d reason=%s", domain,
+                LOG_WRN("IPC", "subscriber creation failed: domain=%d sub=%s category=%d reason=%s", domain,
                         sub.c_str(), (int)res.category, res.reason.c_str());
                 rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
@@ -451,12 +439,9 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 prof = qos.substr(p + 2);
             }
             if (topic.empty() || type.empty()) {
-                LOG_ERR("IPC", "writer creation failed: missing topic or type tag");
+                LOG_WRN("IPC", "writer creation failed: missing topic or type tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
             } else {
-        LOG_FLOW(
-            "Calling DdsManager::create_writer(domain=%d, pub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
-            domain, pub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
                 uint64_t holder_id = 0;
                 DdsResult res = mgr_.create_writer(domain, pub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
@@ -465,7 +450,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                     rsp = { {"ok", true}, {"result", {{"action", "writer created"}, {"domain", domain}, {"publisher", pub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
                     ok = true;
                 } else {
-                    LOG_ERR(
+                    LOG_WRN(
                         "IPC", "writer creation failed: domain=%d pub=%s topic=%s type=%s category=%d reason=%s",
                         domain, pub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
                     rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
@@ -486,12 +471,9 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 prof = qos.substr(p + 2);
             }
             if (topic.empty() || type.empty()) {
-                LOG_ERR("IPC", "reader creation failed: missing topic or type tag");
+                LOG_WRN("IPC", "reader creation failed: missing topic or type tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic or type tag"} };
             } else {
-        LOG_FLOW(
-            "Calling DdsManager::create_reader(domain=%d, sub=%s, topic=%s, type=%s, lib=%s, prof=%s)",
-            domain, sub.c_str(), topic.c_str(), type.c_str(), lib.c_str(), prof.c_str());
                 uint64_t holder_id = 0;
                 DdsResult res = mgr_.create_reader(domain, sub, topic, type, lib, prof, &holder_id);
                 if (res.ok) {
@@ -500,7 +482,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                     rsp = { {"ok", true}, {"result", {{"action", "reader created"}, {"domain", domain}, {"subscriber", sub}, {"topic", topic}, {"type", type}, {"id", holder_id}}} };
                     ok = true;
                 } else {
-                    LOG_ERR(
+                    LOG_WRN(
                         "IPC", "reader creation failed: domain=%d sub=%s topic=%s type=%s category=%d reason=%s",
                         domain, sub.c_str(), topic.c_str(), type.c_str(), (int)res.category, res.reason.c_str());
                     rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
@@ -512,13 +494,13 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
             if (kind != "writer") return;
             std::string topic = target.value("topic", "");
             if (topic.empty()) {
-                LOG_ERR("IPC", "publish_json failed: missing topic tag");
+                LOG_WRN("IPC", "publish_json failed: missing topic tag");
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing topic tag"} };
                 return;
             }
             // Expect data to be a JSON object
             if (!req.contains("data") || !req["data"].is_object()) {
-                LOG_ERR("IPC", "publish_json failed: missing or invalid data object for topic=%s", topic.c_str());
+                LOG_WRN("IPC", "publish_json failed: missing or invalid data object for topic=%s", topic.c_str());
                 rsp = { {"ok", false}, {"err", 6}, {"msg", "Missing or invalid data object"} };
                 return;
             }
@@ -533,14 +515,13 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 rsp = { {"ok", true}, {"result", {{"action", "publish ok"}, {"topic", topic}}} };
                 ok = true;
             } else {
-                LOG_ERR("IPC", "publish_json failed: topic=%s category=%d reason=%s", topic.c_str(),
+                LOG_WRN("IPC", "publish_json failed: topic=%s category=%d reason=%s", topic.c_str(),
                         (int)res.category, res.reason.c_str());
                 rsp = { {"ok", false}, {"err", 4}, {"category", (int)res.category}, {"msg", res.reason} };
             }
         };
 
         auto do_hello = [&]() {
-            LOG_FLOW("Received hello op");
             ok = true;
             rsp = nlohmann::json::object();
             rsp["ok"] = true;
@@ -560,7 +541,6 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                     include_builtin = req["args"].value("include_builtin", false);
                     include_detail = req["args"].value("detail", false);
                 }
-                LOG_FLOW("get.qos: include_builtin=%d include_detail=%d", include_builtin, include_detail);
 
                 auto json_out = mgr_.list_qos_profiles(include_builtin, include_detail);
                 // ensure result field present (must be returned)
@@ -572,13 +552,11 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
                 if (include_detail) {
                     // include detail only when requested; manager returns an array now
                     rsp["detail"] = json_out.value("detail", nlohmann::json::array());
-                    LOG_FLOW("get.qos: including detail entries=%zu", rsp["detail"].size());
                 } else {
-                    LOG_FLOW("get.qos: detail not requested - omitted from response");
                 }
                 ok = true;
             } catch (const std::exception& ex) {
-                LOG_ERR("IPC", "get qos handler exception: %s", ex.what());
+                LOG_WRN("IPC", "get qos handler exception: %s", ex.what());
                 rsp = { {"ok", false}, {"err", 4}, {"msg", "failed to build qos list"} };
             }
         };

@@ -6,15 +6,23 @@
     },
     "dds": {
         "qos_dir": "qos",
-        "mode": "waitset"
+        "mode": "listener"
     },
     "logging": {
         "file_output": true,
         "log_dir": "logs",
         "file_name": "agent.log",
-        "level": "info",
+        "level": "trace",
         "console_output": true,
         "max_file_size_mb": 10,
-        "max_backup_files": 5
+        "max_backup_files": 5,
+        "rti_log_file": ""
+    },
+    "runtime": {
+        "logging": [
+            "level",
+            "file_output",
+            "console_output"
+        ]
     }
 }

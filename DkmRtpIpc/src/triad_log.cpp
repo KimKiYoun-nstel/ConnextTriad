@@ -44,7 +44,7 @@ namespace triad {
             return inst;
         }
 
-        void start(const std::string& dir, const std::string& file, int max_mb, int backups, bool console) {
+        void start(const std::string& dir, const std::string& file, int max_mb, int backups, bool file_out, bool console) {
             std::lock_guard<std::mutex> lock(queue_mutex_);
             if (running_) return;
 
@@ -52,6 +52,7 @@ namespace triad {
             base_filename_ = file;
             max_file_size_ = static_cast<uintmax_t>(max_mb) * 1024 * 1024;
             max_backup_files_ = backups;
+            file_output_ = file_out;
             console_output_ = console;
             running_ = true;
 
@@ -120,11 +121,14 @@ namespace triad {
         }
 
         void write_log(const LogEntry& entry) {
-            std::string log_line = format_log(entry);
+            std::string log_line = format_log(entry, false);  // 파일용 (색상 없음)
 
             if (console_output_) {
-                std::cout << log_line << std::flush; // 즉시 출력
+                std::string console_line = format_log(entry, true);  // 콘솔용 (색상 있음)
+                std::cout << console_line << std::flush; // 즉시 출력
             }
+
+            if (!file_output_) return;
 
             try {
                 fs::path log_path = fs::path(log_dir_) / base_filename_;
@@ -164,41 +168,44 @@ namespace triad {
             fs::rename(log_path, first_backup);
         }
 
-        std::string format_log(const LogEntry& entry) {
+        std::string format_log(const LogEntry& entry, bool use_color) {
             std::ostringstream oss;
             // Color codes for console
             const char* color = "";
             const char* reset = "\033[0m";
             const char* lvl_str = "INF";
 
-            switch (entry.level) {
-                case Lvl::Debug: color = "\033[90m"; lvl_str = "DBG"; break;
-                case Lvl::Info:  color = "\033[0m";  lvl_str = "INF"; break;
-                case Lvl::Trace: color = "\033[36m"; lvl_str = "TRC"; break;
-                case Lvl::Warn:  color = "\033[33m"; lvl_str = "WRN"; break;
-                case Lvl::Error: color = "\033[31m"; lvl_str = "ERR"; break;
+            if (use_color) {
+                switch (entry.level) {
+                    case Lvl::Debug: color = "\033[90m"; lvl_str = "DBG"; break;  // 회색
+                    case Lvl::Info:  color = "\033[37m"; lvl_str = "INF"; break;  // 흰색
+                    case Lvl::Trace: color = "\033[36m"; lvl_str = "TRC"; break;  // 청록색
+                    case Lvl::Warn:  color = "\033[33m"; lvl_str = "WRN"; break;  // 노란색
+                    case Lvl::Error: color = "\033[31m"; lvl_str = "ERR"; break;  // 빨간색
+                }
+            } else {
+                switch (entry.level) {
+                    case Lvl::Debug: lvl_str = "DBG"; break;
+                    case Lvl::Info:  lvl_str = "INF"; break;
+                    case Lvl::Trace: lvl_str = "TRC"; break;
+                    case Lvl::Warn:  lvl_str = "WRN"; break;
+                    case Lvl::Error: lvl_str = "ERR"; break;
+                }
             }
 
             // 파일명만 추출
             fs::path p(entry.file);
             std::string filename = p.filename().string();
 
-            // Console output includes color
-            // File output should ideally strip color, but for simplicity we keep it or strip it based on target.
-            // Here we construct a string. If we want to strip color for file, we need two strings.
-            // For now, let's assume we want plain text in file and color in console.
-            // But to keep it simple in one function, let's just produce one string.
-            // If we want to separate, we should do it in write_log.
-            
-            // Let's return the content part, and handle formatting in write_log?
-            // No, let's just return the full string without color codes for file, and add color for console.
-            // Actually, the user might want to view logs with `cat` or `tail` which handles color.
-            // But usually file logs should be plain text.
-            
-            // Let's make a plain string.
-            oss << "[" << entry.timestamp << "] [" << lvl_str << "] [tid:" << entry.thread_id << "] "
-                << "[" << entry.tag << "] [" << filename << ":" << entry.line << "] "
-                << entry.message << "\n";
+            if (use_color) {
+                oss << color << "[" << entry.timestamp << "] [" << lvl_str << "] [tid:" << entry.thread_id << "] "
+                    << "[" << entry.tag << "] [" << filename << ":" << entry.line << "] "
+                    << entry.message << reset << "\n";
+            } else {
+                oss << "[" << entry.timestamp << "] [" << lvl_str << "] [tid:" << entry.thread_id << "] "
+                    << "[" << entry.tag << "] [" << filename << ":" << entry.line << "] "
+                    << entry.message << "\n";
+            }
             
             return oss.str();
         }
@@ -208,7 +215,8 @@ namespace triad {
         std::string base_filename_;
         uintmax_t max_file_size_;
         int max_backup_files_;
-        bool console_output_;
+        bool file_output_ = true;
+        bool console_output_ = true;
         
         std::queue<LogEntry> log_queue_;
         std::mutex queue_mutex_;
@@ -218,8 +226,8 @@ namespace triad {
     };
 
     void init_logger(const std::string& log_dir, const std::string& filename, 
-                     int max_size_mb, int max_files, bool console_out) {
-        AsyncLogger::instance().start(log_dir, filename, max_size_mb, max_files, console_out);
+                     int max_size_mb, int max_files, bool file_out, bool console_out) {
+        AsyncLogger::instance().start(log_dir, filename, max_size_mb, max_files, file_out, console_out);
     }
 
     void shutdown_logger() {

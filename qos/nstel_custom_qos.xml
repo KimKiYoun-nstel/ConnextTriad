@@ -106,8 +106,9 @@
                     <kind>VOLATILE_DURABILITY_QOS</kind>
                 </durability>
                 <resource_limits>
+                    <initial_instances>10</initial_instances>
                     <max_samples>1000</max_samples>
-<max_instances>10</max_instances>
+                    <max_instances>10</max_instances>
                     <max_samples_per_instance>100</max_samples_per_instance>
                 </resource_limits>
             </datawriter_qos>
@@ -123,8 +124,9 @@
                     <kind>VOLATILE_DURABILITY_QOS</kind>
                 </durability>
                 <resource_limits>
+                    <initial_instances>10</initial_instances>
                     <max_samples>1000</max_samples>
-<max_instances>10</max_instances>
+                    <max_instances>10</max_instances>
                     <max_samples_per_instance>100</max_samples_per_instance>
                 </resource_limits>
             </datareader_qos>

@@ -12,8 +12,6 @@
 #include "triad_log.hpp"
 #include "app_config.hpp"
 
-#define _RTPDDS_DEBUG
-
 int main(int argc, char** argv)
 {
     using namespace rtpdds;
@@ -34,10 +32,11 @@ int main(int argc, char** argv)
 
     // 3. Initialize Logger
     const auto& log_cfg = config.logging();
-    if (log_cfg.file_output) {
-        triad::init_logger(log_cfg.log_dir, log_cfg.file_name, 
-                           log_cfg.max_file_size_mb, log_cfg.max_backup_files, 
-                           log_cfg.console_output);
+    // Initialize logger according to config (file and console output)
+    if (log_cfg.file_output || log_cfg.console_output) {
+        triad::init_logger(log_cfg.log_dir, log_cfg.file_name,
+                           log_cfg.max_file_size_mb, log_cfg.max_backup_files,
+                           log_cfg.file_output, log_cfg.console_output);
     }
 
     InitRtiLoggerToTriad();

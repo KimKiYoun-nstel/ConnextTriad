@@ -48,6 +48,7 @@ bool AppConfig::load(const std::string& path) {
             logging_.console_output = log.value("console_output", logging_.console_output);
             logging_.max_file_size_mb = log.value("max_file_size_mb", logging_.max_file_size_mb);
             logging_.max_backup_files = log.value("max_backup_files", logging_.max_backup_files);
+            logging_.rti_log_file = log.value("rti_log_file", logging_.rti_log_file);
         }
 
         return true;
@@ -67,9 +68,13 @@ void AppConfig::start_watching(const std::string& path) {
         triad::set_thread_name("DA_CfgWatch");
 #endif
         std::string last_level;
+        bool last_file_output = false;
+        bool last_console_output = true;
         {
             std::lock_guard<std::mutex> lock(config_mutex_);
             last_level = logging_.level;
+            last_file_output = logging_.file_output;
+            last_console_output = logging_.console_output;
         }
         while (watching_) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -86,6 +91,18 @@ void AppConfig::start_watching(const std::string& path) {
                     else if (logging_.level == "error") lvl = triad::Lvl::Error;
                     triad::set_level(lvl);
                     last_level = logging_.level;
+                }
+                // If file_output or console_output changed, reinitialize the logger
+                if (logging_.file_output != last_file_output || logging_.console_output != last_console_output) {
+                    // Shutdown existing logger and re-init according to new flags
+                    triad::shutdown_logger();
+                    if (logging_.file_output || logging_.console_output) {
+                        triad::init_logger(logging_.log_dir, logging_.file_name,
+                                           logging_.max_file_size_mb, logging_.max_backup_files,
+                                           logging_.file_output, logging_.console_output);
+                    }
+                    last_file_output = logging_.file_output;
+                    last_console_output = logging_.console_output;
                 }
             }
         }

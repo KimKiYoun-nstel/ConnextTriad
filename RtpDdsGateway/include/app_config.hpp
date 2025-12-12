@@ -30,6 +30,7 @@ public:
         bool console_output = true;
         int max_file_size_mb = 10;
         int max_backup_files = 5;
+        std::string rti_log_file = ""; // RTI 전용 로그 파일 (빈 문자열이면 agent.log와 통합)
     };
 
     static AppConfig& instance();

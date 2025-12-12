@@ -10,7 +10,7 @@ namespace triad {
 
     // 로거 초기화 (앱 시작 시 호출)
     void init_logger(const std::string& log_dir, const std::string& filename, 
-                     int max_size_mb, int max_files, bool console_out);
+                     int max_size_mb, int max_files, bool file_out, bool console_out);
     
     // 로거 종료 (앱 종료 시 호출)
     void shutdown_logger();

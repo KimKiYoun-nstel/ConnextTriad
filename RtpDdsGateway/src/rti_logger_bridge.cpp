@@ -30,8 +30,13 @@ void InitRtiLoggerToTriad()
     // 1) 기본 포맷
     lg.print_format(PrintFormat::MAXIMAL);
 
-    // 2) 전역은 WARNING 이하로
-    lg.verbosity(Verbosity::status_local);  // default는 exception
+#ifdef _RTPDDS_DEBUG
+    // Debug build: RTI logger verbose (모든 상태 메시지)
+    lg.verbosity(Verbosity::status_local);
+#else
+    // Release build: RTI logger minimal (warning 이상만)
+    lg.verbosity(Verbosity::warning);
+#endif
 
     // 3) 범주별 미세 조정
     lg.verbosity_by_category(LogCategory::ALL_CATEGORIES, Verbosity::warning);

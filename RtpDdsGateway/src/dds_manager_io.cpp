@@ -54,7 +54,7 @@ DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::jso
 	auto jstr = j.dump();
 	log_entry("publish_json", std::string("topic=") + truncate_for_log(topic) + ", jsize=" + std::to_string(jstr.size()));
 	if (!j.is_object()) {
-		LOG_ERR("DDS", "publish_json: payload is not a JSON object for topic=%s", topic.c_str());
+		LOG_WRN("DDS", "publish_json: payload is not a JSON object for topic=%s", topic.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "payload must be a JSON object");
 	}
 
@@ -73,13 +73,13 @@ DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::jso
 				auto dom_type_it = topic_to_type_.find(domain_id);
 				if (dom_type_it == topic_to_type_.end()) {
 					// 같은 domain에 대해 topic->type 매핑 자체가 없는 경우
-					LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
-					continue;
-				}
-				auto type_it = dom_type_it->second.find(topic);
-				if (type_it == dom_type_it->second.end()) {
-					// 해당 topic에 대한 타입 정보 미존재
-					LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
+				LOG_WRN("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
+				continue;
+			}
+			auto type_it = dom_type_it->second.find(topic);
+			if (type_it == dom_type_it->second.end()) {
+				// 해당 topic에 대한 타입 정보 미존재
+				LOG_WRN("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
 					continue;
 				}
 				type_name = type_it->second;
@@ -88,14 +88,14 @@ DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::jso
 				// SampleGuard: type_name 기반 샘플 생성 및 RAII 관리
 				SampleGuard sample_guard(type_name);
 				if (!sample_guard) {
-					LOG_ERR("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
+				LOG_WRN("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
 					continue; // 샘플 생성 실패하면 해당 Writer 집합은 건너뜀
 				}
 				LOG_DBG("DDS", "publish_json: sample created for type=%s", type_name.c_str());
 
 				// JSON -> DDS 구조체 변환. 실패 시 해당 엔트리 집합은 건너뜀
 				if (!rtpdds::json_to_dds(j, type_name, sample_guard.get())) {
-					LOG_ERR("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
+				LOG_WRN("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
 					continue;
 				}
 				LOG_DBG("DDS", "publish_json: json_to_dds succeeded for type=%s", type_name.c_str());
@@ -120,7 +120,7 @@ DdsResult DdsManager::publish_json(const std::string& topic, const nlohmann::jso
 		}
 	}
 	if (count == 0) {
-		LOG_ERR("DDS", "publish_json: topic=%s writer not found or invalid type/sample", topic.c_str());
+		LOG_WRN("DDS", "publish_json: topic=%s writer not found or invalid type/sample", topic.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "Writer not found or invalid type/sample for topic: " + topic);
 	}
 	if (count > 1) {
@@ -160,7 +160,7 @@ DdsResult DdsManager::publish_json(int domain_id, const std::string& pub_name, c
 	auto jstr = j.dump();
 	log_entry("publish_json(domain)", std::string("domain_id=") + std::to_string(domain_id) + ", pub_name=" + truncate_for_log(pub_name) + ", topic=" + truncate_for_log(topic) + ", jsize=" + std::to_string(jstr.size()));
 	if (!j.is_object()) {
-		LOG_ERR("DDS", "publish_json: payload is not a JSON object for topic=%s domain=%d", topic.c_str(), domain_id);
+		LOG_WRN("DDS", "publish_json: payload is not a JSON object for topic=%s domain=%d", topic.c_str(), domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic, "payload must be a JSON object");
 	}
 
@@ -168,17 +168,17 @@ DdsResult DdsManager::publish_json(int domain_id, const std::string& pub_name, c
 	// domain/publisher/topic을 특정하여 게시하는 경로 (mutex_ 보호 하에 동작)
 	auto domIt = writers_.find(domain_id);
 	if (domIt == writers_.end()) {
-		LOG_ERR("DDS", "publish_json: domain=%d not found", domain_id);
+		LOG_WRN("DDS", "publish_json: domain=%d not found", domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic, "Domain not found: " + std::to_string(domain_id));
 	}
 	auto pubIt = domIt->second.find(pub_name);
 	if (pubIt == domIt->second.end()) {
-		LOG_ERR("DDS", "publish_json: publisher=%s not found in domain=%d", pub_name.c_str(), domain_id);
+		LOG_WRN("DDS", "publish_json: publisher=%s not found in domain=%d", pub_name.c_str(), domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic, "Publisher not found: " + pub_name);
 	}
 	auto topicIt = pubIt->second.find(topic);
 	if (topicIt == pubIt->second.end()) {
-		LOG_ERR("DDS", "publish_json: topic=%s not found in publisher=%s domain=%d", topic.c_str(), pub_name.c_str(), domain_id);
+		LOG_WRN("DDS", "publish_json: topic=%s not found in publisher=%s domain=%d", topic.c_str(), pub_name.c_str(), domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic, "Topic not found: " + topic);
 	}
 	auto& entries = topicIt->second;
@@ -191,18 +191,18 @@ DdsResult DdsManager::publish_json(int domain_id, const std::string& pub_name, c
 		}
 	}
 	if (type_name.empty()) {
-		LOG_ERR("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
+		LOG_WRN("DDS", "publish_json: type_name not found for topic=%s in domain=%d", topic.c_str(), domain_id);
 		return DdsResult(false, DdsErrorCategory::Logic, "type_name not found for topic: " + topic);
 	}
 
 	SampleGuard sample_guard(type_name);
 	if (!sample_guard) {
-		LOG_ERR("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
+		LOG_WRN("DDS", "publish_json: failed to create sample for type=%s", type_name.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "failed to create sample for type: " + type_name);
 	}
 
 	if (!rtpdds::json_to_dds(j, type_name, sample_guard.get())) {
-		LOG_ERR("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
+		LOG_WRN("DDS", "publish_json: json_to_dds failed for type=%s", type_name.c_str());
 		return DdsResult(false, DdsErrorCategory::Logic, "json_to_dds failed for type: " + type_name);
 	}
 

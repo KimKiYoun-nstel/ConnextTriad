@@ -43,7 +43,7 @@ class AsyncEventProcessor
         size_t max_queue = 8192;
         int monitor_sec = 10;
         bool drain_stop = true;
-        uint32_t exec_warn_us = 2000;
+        uint32_t exec_warn_us = 1000000;  // 1000ms (1초)
     };
 
     /**
