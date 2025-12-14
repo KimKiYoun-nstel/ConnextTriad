@@ -51,6 +51,16 @@ bool AppConfig::load(const std::string& path) {
             logging_.rti_log_file = log.value("rti_log_file", logging_.rti_log_file);
         }
 
+        // Statistics
+        if (j.contains("statistics")) {
+            auto& s = j["statistics"];
+            statistics_.enabled = s.value("enabled", statistics_.enabled);
+            statistics_.file_output = s.value("file_output", statistics_.file_output);
+            statistics_.file_dir = s.value("file_dir", statistics_.file_dir);
+            statistics_.file_name = s.value("file_name", statistics_.file_name);
+            statistics_.format = s.value("format", statistics_.format);
+        }
+
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error parsing config file: " << e.what() << std::endl;

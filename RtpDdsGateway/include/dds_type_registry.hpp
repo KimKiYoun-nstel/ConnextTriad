@@ -15,6 +15,7 @@
 #include <any>
 #include <dds/dds.hpp>
 #include <functional>
+#include "stats_manager.hpp"
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -160,11 +161,20 @@ struct WriterHolder : public IWriterHolder {
                 throw std::bad_cast();
             }
 
-            LOG_FLOW("write_any: data cast successful. Writing data to writer.");
+            LOG_INF("WriterHolder", "write_any: data cast successful. Writing data to writer.");
 
             // RTI writer 호출
             writer->write(*typed_data);
-            LOG_FLOW("write_any: write successful.");
+            // DDS 전송 데이터 로그 출력
+            LOG_FLOW("DDS", "Published data topic=%s type=%s", 
+                     topic_name.c_str(), 
+                     dds::topic::topic_type_name<T>::value().c_str());
+            // 통계: writer의 write 카운트 증가 (topic 기준)
+            try {
+                rtpdds::StatsManager::instance().inc_writer_count(topic_name);
+            } catch (...) {
+                // 통계는 비치명적이며 실패 시 무시
+            }
         } catch (const std::bad_cast& e) {
             LOG_ERR("WriterHolder", "write_any: bad_cast exception: %s", e.what());
             throw std::runtime_error("WriterHolder: bad_cast for type " + dds::topic::topic_type_name<T>::value() +
@@ -182,6 +192,7 @@ struct WriterHolder : public IWriterHolder {
         if ((mask & dds::core::status::StatusMask::publication_matched()).any()) {
             auto s = writer->publication_matched_status();
             LOG_INF("DDS", "pub_matched topic=%s cur=%d total=%d", topic_name.c_str(), s.current_count(), s.total_count());
+            try { rtpdds::StatsManager::instance().set_writer_matched_count(topic_name, static_cast<uint32_t>(s.current_count())); } catch(...) {}
         }
         if ((mask & dds::core::status::StatusMask::offered_incompatible_qos()).any()) {
             auto s = writer->offered_incompatible_qos_status();
@@ -314,6 +325,12 @@ struct ReaderHolder : IReaderHolder {
         dds::sub::LoanedSamples<T> samples = reader->take();
         for (const auto& sample : samples) {
             if (sample.info().valid()) {
+                // 통계: reader의 take 카운트 증가 (topic 기준)
+                try {
+                    rtpdds::StatsManager::instance().inc_reader_count(topic_name);
+                } catch (...) {
+                    // 무시
+                }
                 // 풀에서 재사용 가능한 샘플 확보
                 std::shared_ptr<T> sp;
                 if (pool_index < sample_pool.size()) {
@@ -342,6 +359,7 @@ struct ReaderHolder : IReaderHolder {
         if ((mask & dds::core::status::StatusMask::subscription_matched()).any()) {
             auto st = reader->subscription_matched_status();
             LOG_INF("DDS", "sub_matched topic=%s cur=%d total=%d", topic_name.c_str(), st.current_count(), st.total_count());
+            try { rtpdds::StatsManager::instance().set_reader_matched_count(topic_name, static_cast<uint32_t>(st.current_count())); } catch(...) {}
         }
         if ((mask & dds::core::status::StatusMask::requested_incompatible_qos()).any()) {
             auto st = reader->requested_incompatible_qos_status();

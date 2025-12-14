@@ -11,6 +11,7 @@
 #include "rti_logger_bridge.hpp"
 #include "triad_log.hpp"
 #include "app_config.hpp"
+#include "stats_manager.hpp"
 
 int main(int argc, char** argv)
 {
@@ -83,15 +84,27 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    LOG_INF("Gateway", "starting mode=%s addr=%s port=%u rx_mode=%s", 
+    LOG_ERR("Gateway", "starting mode=%s addr=%s port=%u rx_mode=%s", 
             mode.c_str(), addr.c_str(), (unsigned)port, rx_mode_arg.c_str());
 
     // Start config watching
     config.start_watching("agent_config.json");
 
+    // Start statistics manager (if enabled)
+    if (config.statistics().enabled) {
+        rtpdds::StatsManager::instance().init(config.statistics().file_dir, config.statistics().file_name, config.statistics().file_output);
+        rtpdds::StatsManager::instance().set_output_format(config.statistics().format);
+        rtpdds::StatsManager::instance().start();
+        std::cout << "[Main] StatsManager started" << std::endl;
+    }
+
     app.run();
     
     config.stop_watching();
+    // Stop statistics manager
+    if (config.statistics().enabled) {
+        rtpdds::StatsManager::instance().stop();
+    }
     triad::shutdown_logger();
     return 0;
 }

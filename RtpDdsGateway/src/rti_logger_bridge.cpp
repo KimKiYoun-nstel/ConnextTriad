@@ -43,7 +43,12 @@ void InitRtiLoggerToTriad()
     lg.verbosity_by_category(LogCategory::user, Verbosity::warning);     // RTI Logger 사용자 로그 쓰는 경우만
     lg.verbosity_by_category(LogCategory::ENTITIES, Verbosity::status_local);  // 엔티티 라이프사이클(1회성 위주)
     lg.verbosity_by_category(LogCategory::DISCOVERY, Verbosity::warning);      // 디스커버리 경고만
-    lg.verbosity_by_category(LogCategory::COMMUNICATION, Verbosity::exception);  // 통신 상세 억제
+    
+    // COMMUNICATION 카테고리: warning으로 억제 (Heartbeat/ACK/NACK 등 주기적 로그 방지)
+    // - Sample write/read는 Agent 자체 LOG_FLOW로 확인 (dds_type_registry.hpp)
+    // - 통신 문제 발생 시에만 RTI 로그 출력
+    lg.verbosity_by_category(LogCategory::COMMUNICATION, Verbosity::warning);
+    
     lg.verbosity_by_category(LogCategory::API, Verbosity::warning);
     lg.verbosity_by_category(LogCategory::DATABASE, Verbosity::warning);
     lg.verbosity_by_category(LogCategory::PLATFORM, Verbosity::warning);

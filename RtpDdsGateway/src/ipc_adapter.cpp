@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 #include <any>
 #include <vector>
+#include "stats_manager.hpp"
 
 namespace rtpdds
 {
@@ -80,6 +81,8 @@ void IpcAdapter::install_callbacks()
 
     // === 통합 RPC Envelope (IPC 위 CBOR) ===
     cb.on_request = [this](const dkmrtp::ipc::Header& h, const uint8_t* body, uint32_t len) {
+        // 통계: IPC 수신 카운트
+        try { rtpdds::StatsManager::instance().inc_ipc_in(); } catch(...) {}
         // 수신 프레임을 비동기 CommandEvent로 변환하여 소비자 스레드로 전달
     LOG_DBG("IPC", "on_request corr_id=%u size=%u", h.corr_id, len);
 
@@ -106,6 +109,7 @@ void IpcAdapter::install_callbacks()
             auto preview = rsp.dump();
             LOG_FLOW("OUT corr_id=%u rsp=%s", h.corr_id, truncate_for_log(preview, 1024).c_str());
             ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, h.corr_id, out.data(), (uint32_t)out.size());
+            try { rtpdds::StatsManager::instance().inc_ipc_out(); } catch(...) {}
             return;
         }
         post_cmd_(ev);
@@ -161,6 +165,7 @@ void IpcAdapter::emit_evt_from_sample(const async::SampleEvent& ev)
     auto evt_preview = evt.dump();
     LOG_FLOW("OUT evt topic=%s type=%s evt=%s", topic.c_str(), type_name.c_str(), truncate_for_log(evt_preview, 1024).c_str());
     ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_EVT, 0, out.data(), (uint32_t)out.size());
+    try { rtpdds::StatsManager::instance().inc_ipc_out(); } catch(...) {}
 }
 
 // hello 응답에 사용되는 기능(capability) 목록을 구조적으로 생성한다.
@@ -339,7 +344,8 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
             LOG_FLOW("OUT corr_id=%u rsp=<non-json>", ev.corr_id);
         }
         auto out = nlohmann::json::to_cbor(rsp);
-        ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
+            ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
+            try { rtpdds::StatsManager::instance().inc_ipc_out(); } catch(...) {}
         const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
         const auto qd = std::chrono::duration_cast<std::chrono::microseconds>(t0 - ev.received_time).count();
         LOG_DBG("IPC", "process_request done corr_id=%u q_delay(us)=%lld exec(us)=%lld rsp_size=%zu",
@@ -639,6 +645,7 @@ void IpcAdapter::process_request(const async::CommandEvent& ev) {
     }
     auto out = nlohmann::json::to_cbor(rsp);
     ipc_.send_frame(dkmrtp::ipc::MSG_FRAME_RSP, ev.corr_id, out.data(), (uint32_t)out.size());
+    try { rtpdds::StatsManager::instance().inc_ipc_out(); } catch(...) {}
 
     const auto dt = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
     const auto qd = std::chrono::duration_cast<std::chrono::microseconds>(t0 - ev.received_time).count();

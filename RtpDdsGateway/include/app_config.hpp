@@ -33,6 +33,14 @@ public:
         std::string rti_log_file = ""; // RTI 전용 로그 파일 (빈 문자열이면 agent.log와 통합)
     };
 
+    struct StatsConfig {
+        bool enabled = false;
+        bool file_output = false;
+        std::string file_dir = "logs";
+        std::string file_name = "stats.log";
+        std::string format = "text"; // text, csv, json
+    };
+
     static AppConfig& instance();
 
     // Load configuration from a JSON file.
@@ -48,10 +56,12 @@ public:
     const NetworkConfig& network() const { return network_; }
     const DdsConfig& dds() const { return dds_; }
     const LogConfig& logging() const { return logging_; }
+    const StatsConfig& statistics() const { return statistics_; }
 
     NetworkConfig& network() { return network_; }
     DdsConfig& dds() { return dds_; }
     LogConfig& logging() { return logging_; }
+    StatsConfig& statistics() { return statistics_; }
 
 private:
     AppConfig() = default;
@@ -67,4 +77,5 @@ private:
     triad::TriadThread watch_thread_;
     std::atomic<bool> watching_ = false;
     mutable std::mutex config_mutex_;
+    StatsConfig statistics_;
 };

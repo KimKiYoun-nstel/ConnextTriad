@@ -18,6 +18,12 @@
         "max_backup_files": 5,
         "rti_log_file": ""
     },
+    "statistics": {
+        "enabled": true,
+        "file_output": true,
+        "file_dir": "logs",
+        "file_name": "stats.log"
+    },
     "runtime": {
         "logging": [
             "level",

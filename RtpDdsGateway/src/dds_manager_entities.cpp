@@ -7,6 +7,7 @@
 
 #include "dds_manager.hpp"
 #include "dds_manager_internal.hpp"
+#include "stats_manager.hpp"
 
 using rtpdds::internal::log_entry;
 using rtpdds::internal::truncate_for_log;
@@ -51,6 +52,22 @@ DdsResult DdsManager::create_participant(int domain_id, const std::string& qos_l
 	}
 	participants_[domain_id] = participant;
 	LOG_INF("DDS", "participant created domain=%d", domain_id);
+
+	// 업데이트 통계(현재 상태)
+	try {
+		size_t pcount = participants_.size();
+		size_t pubcount = 0;
+		for (auto &kv : publishers_) pubcount += kv.second.size();
+		size_t subcount = 0;
+		for (auto &kv : subscribers_) subcount += kv.second.size();
+		size_t wcount = 0;
+		for (auto &dom : writers_) for (auto &p : dom.second) for (auto &t : p.second) wcount += t.second.size();
+		size_t rcount = 0;
+		for (auto &dom : readers_) for (auto &p : dom.second) for (auto &t : p.second) rcount += t.second.size();
+		size_t topiccount = 0;
+		for (auto &kv : topics_) topiccount += kv.second.size();
+		rtpdds::StatsManager::instance().set_entity_snapshot(pcount, pubcount, subcount, wcount, rcount, topiccount);
+	} catch(...) {}
 	return DdsResult(true, DdsErrorCategory::None,
 					 "Participant created successfully: domain=" + std::to_string(domain_id));
 }
@@ -101,8 +118,23 @@ DdsResult DdsManager::create_publisher_locked(int domain_id, const std::string& 
 	}
 	publishers_[domain_id][pub_name] = publisher;
 	LOG_INF("DDS", "publisher auto-created domain=%d pub=%s", domain_id, pub_name.c_str());
+	// 업데이트 통계(현재 상태)
+	try {
+		size_t pcount = participants_.size();
+		size_t pubcount = 0;
+		for (auto &kv : publishers_) pubcount += kv.second.size();
+		size_t subcount = 0;
+		for (auto &kv : subscribers_) subcount += kv.second.size();
+		size_t wcount = 0;
+		for (auto &dom : writers_) for (auto &p : dom.second) for (auto &t : p.second) wcount += t.second.size();
+		size_t rcount = 0;
+		for (auto &dom : readers_) for (auto &p : dom.second) for (auto &t : p.second) rcount += t.second.size();
+		size_t topiccount = 0;
+		for (auto &kv : topics_) topiccount += kv.second.size();
+		rtpdds::StatsManager::instance().set_entity_snapshot(pcount, pubcount, subcount, wcount, rcount, topiccount);
+	} catch(...) {}
 	return DdsResult(true, DdsErrorCategory::None,
-					"Publisher created successfully: domain=" + std::to_string(domain_id) + " pub=" + pub_name);
+				"Publisher created successfully: domain=" + std::to_string(domain_id) + " pub=" + pub_name);
 }
 
 /**
@@ -151,8 +183,23 @@ DdsResult DdsManager::create_subscriber_locked(int domain_id, const std::string&
 	}
 	subscribers_[domain_id][sub_name] = subscriber;
 	LOG_INF("DDS", "subscriber auto-created domain=%d sub=%s", domain_id, sub_name.c_str());
+	// 업데이트 통계(현재 상태)
+	try {
+		size_t pcount = participants_.size();
+		size_t pubcount = 0;
+		for (auto &kv : publishers_) pubcount += kv.second.size();
+		size_t subcount = 0;
+		for (auto &kv : subscribers_) subcount += kv.second.size();
+		size_t wcount = 0;
+		for (auto &dom : writers_) for (auto &p : dom.second) for (auto &t : p.second) wcount += t.second.size();
+		size_t rcount = 0;
+		for (auto &dom : readers_) for (auto &p : dom.second) for (auto &t : p.second) rcount += t.second.size();
+		size_t topiccount = 0;
+		for (auto &kv : topics_) topiccount += kv.second.size();
+		rtpdds::StatsManager::instance().set_entity_snapshot(pcount, pubcount, subcount, wcount, rcount, topiccount);
+	} catch(...) {}
 	return DdsResult(true, DdsErrorCategory::None,
-					"Subscriber created successfully: domain=" + std::to_string(domain_id) + " sub=" + sub_name);
+				"Subscriber created successfully: domain=" + std::to_string(domain_id) + " sub=" + sub_name);
 }
 
 /**
@@ -304,6 +351,21 @@ DdsResult DdsManager::create_writer(int domain_id, const std::string& pub_name, 
 
 	LOG_INF("DDS", "create_writer: success domain=%d pub=%s topic=%s type=%s id=%llu", 
 			domain_id, pub_name.c_str(), topic.c_str(), type_name.c_str(), static_cast<unsigned long long>(id));
+	// 업데이트 통계(현재 상태)
+	try {
+		size_t pcount = participants_.size();
+		size_t pubcount = 0;
+		for (auto &kv : publishers_) pubcount += kv.second.size();
+		size_t subcount = 0;
+		for (auto &kv : subscribers_) subcount += kv.second.size();
+		size_t wcount = 0;
+		for (auto &dom : writers_) for (auto &p : dom.second) for (auto &t : p.second) wcount += t.second.size();
+		size_t rcount = 0;
+		for (auto &dom : readers_) for (auto &p : dom.second) for (auto &t : p.second) rcount += t.second.size();
+		size_t topiccount = 0;
+		for (auto &kv : topics_) topiccount += kv.second.size();
+		rtpdds::StatsManager::instance().set_entity_snapshot(pcount, pubcount, subcount, wcount, rcount, topiccount);
+	} catch(...) {}
 	return DdsResult(
 		true, DdsErrorCategory::None,
 		"Writer created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " pub=" + pub_name + " topic=" + topic);
@@ -438,6 +500,21 @@ DdsResult DdsManager::create_reader(int domain_id, const std::string& sub_name, 
 	register_reader_event(reader_holder);
 
 	LOG_INF("DDS", "reader created id=%llu domain=%d sub=%s topic=%s", static_cast<unsigned long long>(id), domain_id, sub_name.c_str(), topic.c_str());
+	// 업데이트 통계(현재 상태)
+	try {
+		size_t pcount = participants_.size();
+		size_t pubcount = 0;
+		for (auto &kv : publishers_) pubcount += kv.second.size();
+		size_t subcount = 0;
+		for (auto &kv : subscribers_) subcount += kv.second.size();
+		size_t wcount = 0;
+		for (auto &dom : writers_) for (auto &p : dom.second) for (auto &t : p.second) wcount += t.second.size();
+		size_t rcount = 0;
+		for (auto &dom : readers_) for (auto &p : dom.second) for (auto &t : p.second) rcount += t.second.size();
+		size_t topiccount = 0;
+		for (auto &kv : topics_) topiccount += kv.second.size();
+		rtpdds::StatsManager::instance().set_entity_snapshot(pcount, pubcount, subcount, wcount, rcount, topiccount);
+	} catch(...) {}
 	return DdsResult(
 		true, DdsErrorCategory::None,
 		"Reader created successfully: id=" + std::to_string(id) + " domain=" + std::to_string(domain_id) + " sub=" + sub_name + " topic=" + topic);
