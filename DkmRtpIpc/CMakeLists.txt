@@ -1,5 +1,8 @@
 ﻿project(DkmRtpIpc LANGUAGES CXX)
-add_library(DkmRtpIpc STATIC src/dkmrtp_ipc.cpp)
+add_library(DkmRtpIpc STATIC 
+    src/dkmrtp_ipc.cpp
+    src/triad_log.cpp
+)
 target_include_directories(DkmRtpIpc PUBLIC include)
 
 # Windows 전용 라이브러리(ws2_32)는 WIN32일 때만 링크

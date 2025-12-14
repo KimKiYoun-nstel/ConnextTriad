@@ -1,0 +1,34 @@
+{
+    "network": {
+        "role": "server",
+        "ip": "0.0.0.0",
+        "port": 25000
+    },
+    "dds": {
+        "qos_dir": "qos",
+        "mode": "listener"
+    },
+    "logging": {
+        "file_output": true,
+        "log_dir": "logs",
+        "file_name": "agent.log",
+        "level": "trace",
+        "console_output": true,
+        "max_file_size_mb": 10,
+        "max_backup_files": 5,
+        "rti_log_file": ""
+    },
+    "statistics": {
+        "enabled": true,
+        "file_output": true,
+        "file_dir": "logs",
+        "file_name": "stats.log"
+    },
+    "runtime": {
+        "logging": [
+            "level",
+            "file_output",
+            "console_output"
+        ]
+    }
+}

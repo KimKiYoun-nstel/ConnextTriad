@@ -19,6 +19,18 @@ namespace rtpdds {
 void DdsManager::clear_entities()
 {
 	std::lock_guard<std::mutex> lock(mutex_);
+
+	// If we're using WaitSet mode, stop the dispatcher first so its threads
+	// don't access DDS entities/conditions while we are destroying them.
+	bool restarted = false;
+	if (waitset_dispatcher_ && event_mode_ == EventMode::WaitSet) {
+		waitset_dispatcher_->stop();
+		// 스레드를 정지한 뒤, 디스패처 내부에 남아있는 모든 핸들러/condition을 제거
+		// (핸들러 포인터가 파괴되는 도중 디스패처가 참조하지 않도록 보장)
+		waitset_dispatcher_->detach_all();
+		restarted = true;
+	}
+
 	// 하위 엔티티부터 상위 엔티티 순으로 컨테이너를 비워 리소스를 해제
 	readers_.clear();
 	writers_.clear();
@@ -28,7 +40,12 @@ void DdsManager::clear_entities()
 	publishers_.clear();
 	participants_.clear();
 
-	LOG_FLOW("clear_entities completed in correct hierarchical order");
+	LOG_INF("DDS", "clear_entities completed in correct hierarchical order");
+
+	// 필요하면 dispatcher를 재시작
+	if (restarted && waitset_dispatcher_) {
+		waitset_dispatcher_->start();
+	}
 }
 
 /**
@@ -56,6 +73,9 @@ DdsResult DdsManager::remove_writer(uint64_t id)
 				auto &vec = topicIt->second;
 				auto it = std::find_if(vec.begin(), vec.end(), [id](const WriterEntry &e) { return e.id == id; });
 				if (it != vec.end()) {
+					// 이벤트 해제
+					unregister_writer_event(it->holder);
+
 					// writer 제거
 					vec.erase(it);
 					LOG_FLOW("removed writer id=%llu domain=%d pub=%s topic=%s",
@@ -123,6 +143,9 @@ DdsResult DdsManager::remove_reader(uint64_t id)
 				auto &vec = topicIt->second;
 				auto it = std::find_if(vec.begin(), vec.end(), [id](const ReaderEntry &e) { return e.id == id; });
 				if (it != vec.end()) {
+					// 이벤트 해제
+					unregister_reader_event(it->holder);
+
 					vec.erase(it);
 					LOG_FLOW("removed reader id=%llu domain=%d sub=%s topic=%s",
 						static_cast<unsigned long long>(id), domain_id, subIt->first.c_str(), topicIt->first.c_str());

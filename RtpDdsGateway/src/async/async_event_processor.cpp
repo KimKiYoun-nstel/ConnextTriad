@@ -1,4 +1,5 @@
 #include "async/async_event_processor.hpp"
+#include "../../DkmRtpIpc/include/triad_thread.hpp"
 // 현재는 헤더에서 전부 인라인. 유지보수 목적의 cpp 파일만 생성.
 // TODO(next): 큐 용량, 드롭 정책, 메트릭 구현 시 이 cpp에 로직 이동.
 
@@ -24,8 +25,20 @@ void AsyncEventProcessor::start()
 {
 	bool expected = false;
 	if (!running_.compare_exchange_strong(expected, true)) return;
-	worker_ = std::thread([this] { loop(); });
-	if (cfg_.monitor_sec > 0) monitor_ = std::thread([this] { monitor_loop(); });
+	// VxWorks에서는 TriadThread::start()로 1MB 스택을 적용, 기타 플랫폼은 std::thread 생성
+#ifdef RTI_VXWORKS
+	worker_.start([this] { loop(); }, "DA_AsyncWkr");
+	if (cfg_.monitor_sec > 0) monitor_.start([this] { monitor_loop(); }, "DA_AsyncMon");
+#else
+	worker_ = std::thread([this] { 
+		triad::set_thread_name("DA_AsyncWkr"); 
+		loop(); 
+	});
+	if (cfg_.monitor_sec > 0) monitor_ = std::thread([this] { 
+		triad::set_thread_name("DA_AsyncMon"); 
+		monitor_loop(); 
+	});
+#endif
 	LOG_INF("ASYNC", "start max_q=%zu monitor=%ds drain=%d warn_us=%u", cfg_.max_queue, cfg_.monitor_sec,
 			cfg_.drain_stop, cfg_.exec_warn_us);
 }
@@ -99,12 +112,39 @@ void AsyncEventProcessor::loop()
 
 void AsyncEventProcessor::monitor_loop()
 {
+	Stats last_stats{};  // Phase 1-3: 이전 스냅샷 저장
+	
 	while (running_.load()) {
 		std::this_thread::sleep_for(std::chrono::seconds(cfg_.monitor_sec));
 		auto st = get_stats();
-		LOG_INF("ASYNC", "stats enq(s/c/e)=(%llu/%llu/%llu) exec=%llu drop=%llu max_depth=%zu cur_depth=%zu",
-				(unsigned long long)st.enq_sample, (unsigned long long)st.enq_cmd, (unsigned long long)st.enq_err,
-				(unsigned long long)st.exec_jobs, (unsigned long long)st.dropped, st.max_depth, st.cur_depth);
+		
+		// Phase 1-3: 초당 비율 계산
+		uint64_t delta_sample = st.enq_sample - last_stats.enq_sample;
+		uint64_t delta_cmd = st.enq_cmd - last_stats.enq_cmd;
+		uint64_t delta_err = st.enq_err - last_stats.enq_err;
+		uint64_t delta_exec = st.exec_jobs - last_stats.exec_jobs;
+		uint64_t delta_drop = st.dropped - last_stats.dropped;
+		
+		uint64_t rate_enq_sample = delta_sample / cfg_.monitor_sec;
+		uint64_t rate_enq_cmd = delta_cmd / cfg_.monitor_sec;
+		uint64_t rate_exec = delta_exec / cfg_.monitor_sec;
+		uint64_t rate_drop = delta_drop / cfg_.monitor_sec;
+		
+		LOG_INF("ASYNC", "stats rate(sample/s=%llu cmd/s=%llu exec/s=%llu drop/s=%llu) "
+					 "total enq(s/c/e)=(%llu/%llu/%llu) exec=%llu drop=%llu max_depth=%zu cur_depth=%zu",
+				(unsigned long long)rate_enq_sample,
+				(unsigned long long)rate_enq_cmd,
+				(unsigned long long)rate_exec,
+				(unsigned long long)rate_drop,
+				(unsigned long long)st.enq_sample,
+				(unsigned long long)st.enq_cmd,
+				(unsigned long long)st.enq_err,
+				(unsigned long long)st.exec_jobs,
+				(unsigned long long)st.dropped,
+				st.max_depth,
+				st.cur_depth);
+		
+		last_stats = st;  // Phase 1-3: 현재 값 저장
 	}
 }
 

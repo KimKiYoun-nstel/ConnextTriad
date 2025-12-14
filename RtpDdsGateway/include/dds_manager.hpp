@@ -16,6 +16,7 @@
 #include "type_registry.hpp"
 #include "qos_store.hpp"
 #include "rtpdds/api/idds_manager.hpp"
+#include "async/waitset_dispatcher.hpp"
 
 namespace rtpdds
 {
@@ -41,6 +42,14 @@ namespace rtpdds
 class DdsManager {
 public:
     /**
+     * @brief 이벤트 처리 모드
+     */
+    enum class EventMode {
+        Listener,   ///< RTI 내부 스레드(Listener) 사용 (기본값)
+        WaitSet     ///< 별도 스레드(WaitSet) 사용
+    };
+
+    /**
      * @brief 생성자
      * @param qos_dir QoS XML 탐색 디렉토리 경로
      * @details 타입/JSON 레지스트리 초기화 후 QosStore를 준비합니다.
@@ -48,6 +57,13 @@ public:
     explicit DdsManager(const std::string& qos_dir = "qos");
     /** 소멸자: 스마트 포인터 기반 자원 해제 */
     ~DdsManager();
+
+    /**
+     * @brief 이벤트 처리 모드 설정
+     * @param mode 설정할 모드
+     * @note 엔티티 생성 전에 설정하는 것을 권장합니다.
+     */
+    void set_event_mode(EventMode mode);
 
     /**
      * @brief 모든 DDS 엔티티 해제
@@ -269,5 +285,15 @@ private:
     // 개별 writer/reader 제거 (내부용)
     DdsResult remove_writer(HolderId id);
     DdsResult remove_reader(HolderId id);
+
+    // 이벤트 처리 모드 및 WaitSet Dispatcher
+    EventMode event_mode_ = EventMode::Listener;
+    std::unique_ptr<async::WaitSetDispatcher> waitset_dispatcher_;
+
+    // 내부 헬퍼: 이벤트 등록/해제
+    void register_reader_event(std::shared_ptr<IReaderHolder> holder);
+    void register_writer_event(std::shared_ptr<IWriterHolder> holder);
+    void unregister_reader_event(std::shared_ptr<IReaderHolder> holder);
+    void unregister_writer_event(std::shared_ptr<IWriterHolder> holder);
 };
 }  // namespace rtpdds

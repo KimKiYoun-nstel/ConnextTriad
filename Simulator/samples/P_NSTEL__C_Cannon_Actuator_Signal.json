@@ -1,0 +1,26 @@
+{
+  "A_recipientID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_azAngle": 1.0,
+  "A_e1AngleVelocity": 1.0,
+  "A_energyStorage": "L_ChangingStatusType_NORMAL",
+  "A_mainCannonFixStatus": "L_MainCannonFixStatusType_NORMAL",
+  "A_deckClearance": "L_DekClearanceType_OUTSIDE",
+  "A_autoArmPositionComplement": "L_ArmPositionType_NORMAL",
+  "A_manualArmPositionComple": "L_ArmPositionType_NORMAL",
+  "A_mainCannonRestoreComplement": "L_MainCannonReturnStatusType_RUNNING",
+  "A_armSafetyMainCannonLock": "L_ArmSafetyMainCannonLock_NORMAL",
+  "A_shutdown": "L_CannonDrivingDeviceShutdownType_UNKNOWN",
+  "A_roundGyro": 1.0,
+  "A_upDownGyro": 1.0
+}

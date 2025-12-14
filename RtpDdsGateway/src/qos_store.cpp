@@ -458,7 +458,7 @@ std::optional<QosPack> QosStore::find_or_reload(const std::string& lib, const st
             if (!xml.empty()) {
                 // compressed XML can be large; emit only a one-line flow-level info and keep full XML at DEBUG
                 auto compressed = compress_xml(xml);
-                LOG_FLOW("[qos-load] %s::%s from=%s xml_size=%zu", lib.c_str(), profile.c_str(), pack->origin_file.c_str(), compressed.size());
+                LOG_DBG("DDS", "[qos-load] %s::%s from=%s xml_size=%zu", lib.c_str(), profile.c_str(), pack->origin_file.c_str(), compressed.size());
                 LOG_DBG("DDS", "[qos-load:xml] %s::%s %s", lib.c_str(), profile.c_str(), compressed.c_str());
             } else {
                 LOG_WRN("DDS", "[qos-load] profile xml not found for %s::%s (file=%s)", lib.c_str(), profile.c_str(),

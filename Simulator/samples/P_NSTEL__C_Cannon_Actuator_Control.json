@@ -1,0 +1,28 @@
+{
+  "A_recipientID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_drivingPosition": 1.0,
+  "A_upDownPosition": 1.0,
+  "A_roundAngleVelocity": 1.0,
+  "A_upDownAngleVelocity": 1.0,
+  "A_cannonUpDownAngle": 1.0,
+  "A_topRelativeAngle": 1.0,
+  "A_operationMode": "L_OperationModeType_NORMAL",
+  "A_parm": "L_OnOffType_ON",
+  "A_targetDesingation": "L_TargetAllotType_ALLOT",
+  "A_autoArmPosition": "L_ArmPositionLockType_RELEASE",
+  "A_manualArmPosition": "L_ArmPositionLockType_RELEASE",
+  "A_mainCannonRestore": "L_MainCannonReturnType_RELEASE",
+  "A_manCannonFix": "L_MainCannonFixType_RELEASE",
+  "A_closeEquipOpenStatus": "L_EquipOpenLockType_LOCK"
+}

@@ -1,0 +1,28 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_eventOccurenceDate": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_standardFaultCode": 1.0,
+  "A_proprietaryFaultCode": "proprietaryFaultCode",
+  "A_predictedFailure": false,
+  "A_failureDescription": "failureDescription",
+  "A_causeDescription": "causeDescription",
+  "A_operationalConsequenceDescription": "operationalConsequenceDescription",
+  "A_operatorActionDescription": "operatorActionDescription",
+  "A_maintenanceActionDescription": "maintenanceActionDescription",
+  "A_complementaryInformation": "complementaryInformation",
+  "A_eventDocumentationURI": "eventDocumentationURI",
+  "A_monitoredEntity_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

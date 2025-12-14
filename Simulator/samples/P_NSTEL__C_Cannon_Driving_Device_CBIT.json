@@ -1,0 +1,30 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_runBITEntity_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_type": "L_BITType_C_BIT",
+  "A_upDownMotor": false,
+  "A_roundMotor": false,
+  "A_upDownAmp": false,
+  "A_roundAmp": false,
+  "A_baseGyro": false,
+  "A_topForwardGryro": false,
+  "A_vehicleForwardGyro": false,
+  "A_powerController": false,
+  "A_energyStorage": false,
+  "A_directPower": false,
+  "A_cableLoop": false,
+  "A_upDownPark": false,
+  "A_round_Park": false,
+  "A_mainCannon_Lock": false,
+  "A_commFault": false
+}

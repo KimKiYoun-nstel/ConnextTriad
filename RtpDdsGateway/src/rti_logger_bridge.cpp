@@ -30,15 +30,25 @@ void InitRtiLoggerToTriad()
     // 1) 기본 포맷
     lg.print_format(PrintFormat::MAXIMAL);
 
-    // 2) 전역은 WARNING 이하로
-    lg.verbosity(Verbosity::status_local);  // default는 exception
+#ifdef _RTPDDS_DEBUG
+    // Debug build: RTI logger verbose (모든 상태 메시지)
+    lg.verbosity(Verbosity::status_local);
+#else
+    // Release build: RTI logger minimal (warning 이상만)
+    lg.verbosity(Verbosity::warning);
+#endif
 
     // 3) 범주별 미세 조정
     lg.verbosity_by_category(LogCategory::ALL_CATEGORIES, Verbosity::warning);
     lg.verbosity_by_category(LogCategory::user, Verbosity::warning);     // RTI Logger 사용자 로그 쓰는 경우만
     lg.verbosity_by_category(LogCategory::ENTITIES, Verbosity::status_local);  // 엔티티 라이프사이클(1회성 위주)
     lg.verbosity_by_category(LogCategory::DISCOVERY, Verbosity::warning);      // 디스커버리 경고만
-    lg.verbosity_by_category(LogCategory::COMMUNICATION, Verbosity::exception);  // 통신 상세 억제
+    
+    // COMMUNICATION 카테고리: warning으로 억제 (Heartbeat/ACK/NACK 등 주기적 로그 방지)
+    // - Sample write/read는 Agent 자체 LOG_FLOW로 확인 (dds_type_registry.hpp)
+    // - 통신 문제 발생 시에만 RTI 로그 출력
+    lg.verbosity_by_category(LogCategory::COMMUNICATION, Verbosity::warning);
+    
     lg.verbosity_by_category(LogCategory::API, Verbosity::warning);
     lg.verbosity_by_category(LogCategory::DATABASE, Verbosity::warning);
     lg.verbosity_by_category(LogCategory::PLATFORM, Verbosity::warning);

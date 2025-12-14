@@ -6,6 +6,7 @@
 
  */
 #include "dkmrtp_ipc.hpp"
+#include "triad_thread.hpp"
 #include <chrono>
 #include <cstring>
 // 플랫폼별 소켓 포함 및 보조 정의
@@ -22,6 +23,9 @@
 #  include <sys/types.h>
 #  include <sys/socket.h>
 #  include <netinet/in.h>
+// POSIX: select(), fd_set and timeval
+#  include <sys/time.h>
+#  include <sys/select.h>
 #endif
 
 // 타입/상수 매핑: 원래 Windows 코드에서 사용하던 SOCKET/INVALID_SOCKET/SOCKET_ERROR
@@ -125,7 +129,11 @@ namespace dkmrtp {
             if (!open_socket(role, ep))
                 return false;
             running_ = true;
-            th_ = std::thread(&DkmRtpIpc::recv_loop, this);
+#ifdef RTI_VXWORKS
+            th_.start([this]{ recv_loop(); }, "DA_IPC_Recv"); // 1MB 스택 + 이름 적용
+#else
+            th_ = std::thread([this]{ triad::set_thread_name("DA_IPC_Recv"); recv_loop(); });
+#endif
             return true;
         }
         void DkmRtpIpc::stop() {
@@ -164,12 +172,12 @@ namespace dkmrtp {
 #ifdef _WIN32
                 DWORD sent = 0;
                 WSABUF bufs[1];
-                bufs[0].buf = reinterpret_cast<char *>(packet.data());
+                bufs[0].buf = reinterpret_cast<char *>(send_buf_.data());
                 bufs[0].len = (ULONG)total_len;
                 int rc = WSASend(s, bufs, 1, &sent, 0, nullptr, nullptr);
                 return rc == 0 && sent == (DWORD)total_len;
 #else
-                int rc = send(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0);
+                int rc = send(s, reinterpret_cast<const char *>(send_buf_.data()), (int)total_len, 0);
                 return rc == (int)total_len;
 #endif
             } else {
@@ -181,13 +189,14 @@ namespace dkmrtp {
                 peer.sin_port = last_peer_.port_be;
 
                 // 헤더+페이로드 합치기
+                // Phase 1-1: 재사용 버퍼 사용 (매 전송마다 할당 제거)
                 size_t total_len = sizeof(Header) + len;
-                std::vector<uint8_t> packet(total_len);
-                memcpy(packet.data(), &h, sizeof(Header));
+                send_buf_.resize(total_len);
+                memcpy(send_buf_.data(), &h, sizeof(Header));
                 if (payload && len)
-                    memcpy(packet.data() + sizeof(Header), payload, len);
+                    memcpy(send_buf_.data() + sizeof(Header), payload, len);
 
-                int rc = sendto(s, reinterpret_cast<const char *>(packet.data()), (int)total_len, 0,
+                int rc = sendto(s, reinterpret_cast<const char *>(send_buf_.data()), (int)total_len, 0,
                                 reinterpret_cast<sockaddr *>(&peer), sizeof(peer));
                 if (rc == SOCKET_ERROR || rc != (int)total_len)
                     return false;

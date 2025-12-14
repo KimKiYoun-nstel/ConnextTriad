@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file dkmrtp_ipc.hpp
  * ### 파일 설명(한글)
  * UDP 기반의 경량 IPC 라이브러리(정적). 서버/클라이언트 역할을 모두 지원.
@@ -13,9 +13,15 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include "triad_thread.hpp"
 #include <vector>
 #ifdef _WIN32
-#include <WinSock2.h>
+// Windows: winsock2 must be included before any header that pulls in winsock.h (e.g. windows.h)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #else
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -56,10 +62,11 @@ class DkmRtpIpc {
             Role role_{Role::Server};
             Endpoint ep_{};
             std::atomic<bool> running_{false};
-            std::thread th_;
+            triad::TriadThread th_; // VxWorks에서 1MB 스택 적용
             void *sock_{nullptr};
             Callbacks cb_{};
             std::mutex send_mtx_;
+            std::vector<uint8_t> send_buf_;  // 재사용 송신 버퍼 (Phase 1-1)
 
           private:
             struct Peer {

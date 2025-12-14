@@ -1,0 +1,24 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_unit": "unit",
+  "A_descriptor": "descriptor",
+  "A_publishingIntervalInSeconds": 1,
+  "A_characteristicKind": "L_MonitoredCharacteristicKind_INSTANT",
+  "A_specifiedMonitoredCharacteristic_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_thresholds_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

@@ -10,38 +10,101 @@
 #include "gateway.hpp"
 #include "rti_logger_bridge.hpp"
 #include "triad_log.hpp"
-
-#define _RTPDDS_DEBUG
+#include "app_config.hpp"
+#include "stats_manager.hpp"
 
 int main(int argc, char** argv)
 {
     using namespace rtpdds;
 
+    // 1. Load Configuration
+    auto& config = AppConfig::instance();
+    if (config.load("agent_config.json")) {
+        std::cout << "[Main] Loaded configuration from agent_config.json" << std::endl;
+    } else {
+        std::cout << "[Main] Using default configuration (no agent_config.json found)" << std::endl;
+    }
 
-    std::string mode = (argc > 1) ? argv[1] : "server";
-    std::string addr = (argc > 2) ? argv[2] : "0.0.0.0";
-    uint16_t port = (argc > 3) ? static_cast<uint16_t>(std::stoi(argv[3])) : 25000;
+    // 2. CLI Override (if provided)
+    if (argc > 1) config.network().role = argv[1];
+    if (argc > 2) config.network().ip = argv[2];
+    if (argc > 3) config.network().port = static_cast<uint16_t>(std::stoi(argv[3]));
+    if (argc > 4) config.dds().mode = argv[4];
+
+    // 3. Initialize Logger
+    const auto& log_cfg = config.logging();
+    // Initialize logger according to config (file and console output)
+    if (log_cfg.file_output || log_cfg.console_output) {
+        triad::init_logger(log_cfg.log_dir, log_cfg.file_name,
+                           log_cfg.max_file_size_mb, log_cfg.max_backup_files,
+                           log_cfg.file_output, log_cfg.console_output);
+    }
 
     InitRtiLoggerToTriad();
-#ifdef _RTPDDS_DEBUG
-    // SetRtiLoggerVerbosity(rti::config::Verbosity::status_all); // 개발시
-    SetRtiLoggerVerbosity(rti::config::Verbosity::warning);
-    triad::set_level(triad::Lvl::Debug);
-#else
-    triad::set_level(triad::Lvl::Info);
-#endif
 
+    // 4. Set Log Level
+    triad::Lvl lvl = triad::Lvl::Info;
+    if (log_cfg.level == "debug") lvl = triad::Lvl::Debug;
+    else if (log_cfg.level == "trace") lvl = triad::Lvl::Trace;
+    else if (log_cfg.level == "warn") lvl = triad::Lvl::Warn;
+    else if (log_cfg.level == "error") lvl = triad::Lvl::Error;
+
+#ifdef _RTPDDS_DEBUG
+    // In debug build, keep RTI logger verbose but respect app log level from config
+    SetRtiLoggerVerbosity(rti::config::Verbosity::warning);
+#else
+    // Release build
+#endif
+    triad::set_level(lvl);
+
+    // 5. Start Application
     GatewayApp app;
     
+    // map CLI receive mode to async::DdsReceiveMode
+    using namespace rtpdds::async;
+    DdsReceiveMode rxmode = DdsReceiveMode::WaitSet;
+    std::string rx_mode_arg = config.dds().mode;
+
+    if (!rx_mode_arg.empty()) {
+        if (rx_mode_arg == "listener" || rx_mode_arg == "Listener") rxmode = DdsReceiveMode::Listener;
+        else rxmode = DdsReceiveMode::WaitSet;
+    }
+    app.set_receive_mode(rxmode);
+
+    std::string mode = config.network().role;
+    std::string addr = config.network().ip;
+    uint16_t port = config.network().port;
+
     bool ok = (mode == "server") ? app.start_server(addr, port) : app.start_client(addr, port);
 
     if (!ok) {
         std::cerr << "failed to start gateway\n";
+        config.stop_watching();
+        triad::shutdown_logger();
         return 1;
     }
 
-    LOG_INF("Gateway", "starting mode=%s addr=%s port=%u", mode.c_str(), addr.c_str(), (unsigned)port);
+    LOG_ERR("Gateway", "starting mode=%s addr=%s port=%u rx_mode=%s", 
+            mode.c_str(), addr.c_str(), (unsigned)port, rx_mode_arg.c_str());
+
+    // Start config watching
+    config.start_watching("agent_config.json");
+
+    // Start statistics manager (if enabled)
+    if (config.statistics().enabled) {
+        rtpdds::StatsManager::instance().init(config.statistics().file_dir, config.statistics().file_name, config.statistics().file_output);
+        rtpdds::StatsManager::instance().set_output_format(config.statistics().format);
+        rtpdds::StatsManager::instance().start();
+        std::cout << "[Main] StatsManager started" << std::endl;
+    }
 
     app.run();
+    
+    config.stop_watching();
+    // Stop statistics manager
+    if (config.statistics().enabled) {
+        rtpdds::StatsManager::instance().stop();
+    }
+    triad::shutdown_logger();
     return 0;
 }

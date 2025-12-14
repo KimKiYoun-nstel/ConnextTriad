@@ -1,33 +1,72 @@
 cmake_minimum_required(VERSION 3.16)
-project(IdlKit)
+project(IdlKit LANGUAGES CXX)
 
 find_package(Python3 REQUIRED)
 
 # rtiddsgen 경로
-# 플랫폼에 따라 rtiddsgen(.bat) 또는 rtiddsgen 실행파일을 자동으로 탐색합니다.
-# 우선 환경변수 RTIDDSGEN_EXECUTABLE이 제공되면 그것을 사용하고, 그렇지 않으면
-# NDDSHOME/bin 아래에서 검색합니다. Windows와 Unix를 모두 지원하도록 구성합니다.
-
+# VxWorks(CTL) 빌드일 때는 NDDSHOME_CTL/bin에서, 그 외에는 NDDSHOME/bin에서 찾는다.
 if(NOT DEFINED RTIDDSGEN_EXECUTABLE OR RTIDDSGEN_EXECUTABLE STREQUAL "")
-  if(DEFINED ENV{NDDSHOME})
-    set(RTI_SEARCH_PATH "$ENV{NDDSHOME}/bin")
+  if(IS_VXWORKS)
+    # Toolchain에서 설정한 RTI_ROOT 사용
+    if(DEFINED RTI_ROOT)
+      set(RTI_SEARCH_PATH "${RTI_ROOT}/bin")
+    elseif(DEFINED ENV{NDDSHOME_CTL})
+      set(RTI_SEARCH_PATH "$ENV{NDDSHOME_CTL}/bin")
+    else()
+      set(RTI_SEARCH_PATH "")
+    endif()
   else()
-    set(RTI_SEARCH_PATH "")
+    if(DEFINED ENV{NDDSHOME})
+      set(RTI_SEARCH_PATH "$ENV{NDDSHOME}/bin")
+    else()
+      set(RTI_SEARCH_PATH "")
+    endif()
   endif()
-  # try to find either rtiddsgen (unix) or rtiddsgen.bat (windows)
-  find_program(_FOUND_RTIDD GEN_NAMES rtiddsgen rtiddsgen.bat PATHS ${RTI_SEARCH_PATH})
-  # Above line is a workaround placeholder; use a proper find_program below.
-  find_program(RTIDDSGEN_EXECUTABLE NAMES rtiddsgen rtiddsgen.bat PATHS ${RTI_SEARCH_PATH})
+
+  # Prefer the requested RTI install explicitly via HINTS so that CTL/NDDSHOME
+  # bin directories are searched before the system PATH. If RTI_SEARCH_PATH
+  # is empty the HINTS are ignored and normal PATH search still applies.
+  if(IS_VXWORKS AND DEFINED RTI_ROOT)
+    find_program(RTIDDSGEN_EXECUTABLE
+      NAMES rtiddsgen rtiddsgen.bat
+      HINTS "${RTI_ROOT}/bin"
+      PATHS ${RTI_SEARCH_PATH}
+    )
+  elseif(IS_VXWORKS AND DEFINED ENV{NDDSHOME_CTL})
+    find_program(RTIDDSGEN_EXECUTABLE
+      NAMES rtiddsgen rtiddsgen.bat
+      HINTS "$ENV{NDDSHOME_CTL}/bin"
+      PATHS ${RTI_SEARCH_PATH}
+    )
+  elseif(NOT IS_VXWORKS AND DEFINED ENV{NDDSHOME})
+    find_program(RTIDDSGEN_EXECUTABLE
+      NAMES rtiddsgen rtiddsgen.bat
+      HINTS "$ENV{NDDSHOME}/bin"
+      PATHS ${RTI_SEARCH_PATH}
+    )
+  else()
+    find_program(RTIDDSGEN_EXECUTABLE
+      NAMES rtiddsgen rtiddsgen.bat
+      PATHS ${RTI_SEARCH_PATH}
+    )
+  endif()
+
   if(RTIDDSGEN_EXECUTABLE)
     set(RTIDDSGEN_EXECUTABLE "${RTIDDSGEN_EXECUTABLE}" CACHE FILEPATH "rtiddsgen path")
   endif()
 endif()
 
 if(NOT RTIDDSGEN_EXECUTABLE)
-  message(FATAL_ERROR "Set NDDSHOME or RTIDDSGEN_EXECUTABLE")
+  if(IS_VXWORKS)
+    message(FATAL_ERROR "VxWorks/CTL build: set NDDSHOME_CTL or RTIDDSGEN_EXECUTABLE (CTL용 rtiddsgen 필요)")
+  else()
+    message(FATAL_ERROR "Set NDDSHOME or RTIDDSGEN_EXECUTABLE")
+  endif()
 else()
   message(STATUS "RTIDDSGEN executable: ${RTIDDSGEN_EXECUTABLE}")
 endif()
+
+
 
 # 경로
 set(IDL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/idl)
@@ -106,17 +145,49 @@ add_dependencies(idl_json_bind idl_type_registry)
 # 타입 라이브러리: 실제 생성된 .cxx + type registry + json bind
 add_library(DdsTypes STATIC ${GEN_CPP_SOURCES} ${GEN_DIR}/idl_type_registry.cpp ${GEN_DIR}/idl_json_bind.cpp)
 add_dependencies(DdsTypes idl_cpp idl_xml idl_type_registry idl_json_bind)
-target_include_directories(DdsTypes PUBLIC ${GEN_DIR}
-                                     PRIVATE "$ENV{NDDSHOME}/include" "$ENV{NDDSHOME}/include/ndds" "$ENV{NDDSHOME}/include/ndds/hpp" "${CMAKE_SOURCE_DIR}/third_party" "${CMAKE_SOURCE_DIR}/RtpDdsGateway/include")
-target_compile_definitions(DdsTypes PRIVATE NDDS_DLL_VARIABLE)
 
-if(WIN32)
+# Suppress C++20 designated-initializer warnings when building with Clang
+# (VxWorks toolchain uses clang via wr-c++). The generated IDL code and RTI
+# headers use designated initializers which are a C++20 feature; we compile
+# with -std=c++17 so clang warns. Disable that specific warning for this
+# target only to avoid noisy logs while keeping other warnings enabled.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  target_compile_options(DdsTypes PRIVATE -Wno-c++20-designator)
+endif()
+# --- RTI include path for generated code ---
+if(IS_VXWORKS)
+  if(DEFINED RTI_ROOT)
+    set(_RTI_IDL_INCLUDE "${RTI_ROOT}/include")
+  elseif(DEFINED ENV{NDDSHOME_CTL})
+    set(_RTI_IDL_INCLUDE "$ENV{NDDSHOME_CTL}/include")
+  else()
+    message(FATAL_ERROR "VxWorks/CTL build: NDDSHOME_CTL must be set for IdlKit")
+  endif()
 else()
-    # Linux/Unix build: ensure RTI platform macros are set so RTI headers
-    # select the correct OS-specific definitions when compiling generated code.
-    # This is a conservative, local compile-definition only for the generated
-    # types library and is reversible.
-    target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
+  if(DEFINED ENV{NDDSHOME})
+    set(_RTI_IDL_INCLUDE "$ENV{NDDSHOME}/include")
+  else()
+    message(FATAL_ERROR "Host build: NDDSHOME must be set for IdlKit")
+  endif()
+endif()
+target_include_directories(DdsTypes PUBLIC ${GEN_DIR}
+                                     PRIVATE "${_RTI_IDL_INCLUDE}" 
+                                     "${_RTI_IDL_INCLUDE}/ndds" 
+                                     "${_RTI_IDL_INCLUDE}/ndds/hpp" 
+                                     "${CMAKE_SOURCE_DIR}/third_party" 
+                                     "${CMAKE_SOURCE_DIR}/RtpDdsGateway/include")
+if(WIN32)
+  target_compile_definitions(DdsTypes PRIVATE NDDS_DLL_VARIABLE)
+endif()
+
+# RTI 플랫폼 매크로
+if(IS_VXWORKS)
+  # VxWorks + clang(llvm) 환경
+  # Toolchain에서 이미 정의되었으므로 중복 정의하지 않음
+  # target_compile_definitions(DdsTypes PRIVATE RTI_VXWORKS RTI_CLANG)
+elseif(NOT WIN32)
+  # Linux/기타 Unix
+  target_compile_definitions(DdsTypes PRIVATE RTI_UNIX=1)
 endif()
 
 

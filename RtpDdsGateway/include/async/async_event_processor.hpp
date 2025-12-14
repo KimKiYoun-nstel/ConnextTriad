@@ -11,6 +11,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include "triad_thread.hpp"
 
 #include "sample_handler.hpp"
 #include "triad_log.hpp"
@@ -42,7 +43,7 @@ class AsyncEventProcessor
         size_t max_queue = 8192;
         int monitor_sec = 10;
         bool drain_stop = true;
-        uint32_t exec_warn_us = 2000;
+        uint32_t exec_warn_us = 1000000;  // 1000ms (1초)
     };
 
     /**
@@ -149,7 +150,7 @@ class AsyncEventProcessor
     mutable std::mutex m_;
     std::condition_variable cv_;
     std::deque<std::function<void()> > q_;
-    std::thread worker_, monitor_;
+    triad::TriadThread worker_, monitor_; // VxWorks에서 1MB 스택 적용
     std::atomic<bool> running_{false};
 
     // 핸들러

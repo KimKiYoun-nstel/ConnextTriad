@@ -1,0 +1,22 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_activeAlarmCount": 1,
+  "A_unacknowledgedAlarmCount": 1,
+  "A_categorisedActualAlarm_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_alarmCategorySpecification_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

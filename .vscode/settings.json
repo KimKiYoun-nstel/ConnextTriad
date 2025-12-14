@@ -75,7 +75,11 @@
         "xtree": "cpp",
         "xutility": "cpp",
         "unordered_set": "cpp",
-        "regex": "cpp"
+        "regex": "cpp",
+        "condition_variable": "cpp",
+        "deque": "cpp",
+        "fstream": "cpp",
+        "shared_mutex": "cpp"
     },
     "[cpp]": {
         "editor.defaultFormatter": "xaver.clang-format"
@@ -83,5 +87,6 @@
     "editor.formatOnSave": true,
     "clang-format.executable": "${workspaceRoot}/.clang-format",
     "python-envs.defaultEnvManager": "ms-python.python:system",
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "python.terminal.activateEnvironment": false
 }

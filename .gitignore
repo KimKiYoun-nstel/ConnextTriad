@@ -387,5 +387,11 @@ generated/*Support.*
 ## Custom project output
 build/
 out/
+build-vx/
 
 .zip
+
+# Python virtual environment
+venv/
+.venv/
+env/

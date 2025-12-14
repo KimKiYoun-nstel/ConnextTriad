@@ -1,0 +1,33 @@
+{
+  "A_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_timeOfDataGeneration": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_eventOccurenceDate": {
+    "A_second": 1,
+    "A_nanoseconds": 1
+  },
+  "A_measuredValue": 1.0,
+  "A_inducedEvents_sourceID": [
+    {
+      "A_resourceId": 1,
+      "A_instanceId": 1
+    }
+  ],
+  "A_inducingEvent_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_concernedCharacteristic_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  },
+  "A_exceededThreshold_sourceID": {
+    "A_resourceId": 1,
+    "A_instanceId": 1
+  }
+}

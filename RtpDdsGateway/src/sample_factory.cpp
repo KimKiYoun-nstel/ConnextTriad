@@ -24,18 +24,15 @@ namespace rtpdds
  * - 주로 publish를 위한 빈 샘플 생성이나 테스트용 인스턴스 생성에 사용됩니다.
  */
 void* create_sample(const std::string& type_name) {
-    LOG_FLOW("create_sample: creating sample for type=%s", type_name.c_str());
     const auto& reg = idlmeta::type_registry();
     auto it = reg.find(type_name);
     if (it == reg.end()) {
-        LOG_ERR("SampleFactory", "create_sample: no factory registered for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "create_sample: no factory registered for type=%s", type_name.c_str());
         return nullptr;
     }
     void* sample = it->second.create();
     if (!sample) {
         LOG_ERR("SampleFactory", "create_sample: failed to create sample for type=%s", type_name.c_str());
-    } else {
-        LOG_FLOW("create_sample: sample created successfully for type=%s, sample_ptr=%p", type_name.c_str(), sample);
     }
     return sample;
 }
@@ -47,11 +44,10 @@ void* create_sample(const std::string& type_name) {
  * - null 포인터나 등록되지 않은 타입에 대해서는 적절한 로그를 남기고 조용히 반환합니다.
  */
 void destroy_sample(const std::string& type_name, void* p) {
-    LOG_FLOW("destroy_sample: destroying sample for type=%s, sample_ptr=%p", type_name.c_str(), p);
     const auto& reg = idlmeta::type_registry();
     auto it = reg.find(type_name);
     if (it == reg.end()) {
-        LOG_ERR("SampleFactory", "destroy_sample: no factory registered for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "destroy_sample: no factory registered for type=%s", type_name.c_str());
         return;
     }
     if (!p) {
@@ -59,7 +55,6 @@ void destroy_sample(const std::string& type_name, void* p) {
         return;
     }
     it->second.destroy(p);
-    LOG_FLOW("destroy_sample: sample destroyed for type=%s", type_name.c_str());
 }
 
 /**
@@ -74,11 +69,11 @@ bool json_to_dds(const nlohmann::json& j, const std::string& type_name, void* sa
     const auto& jr = idlmeta::json_registry();
     auto it = jr.find(type_name);
     if (it == jr.end()) {
-        LOG_ERR("SampleFactory", "json_to_dds: no JSON registry entry for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "json_to_dds: no JSON registry entry for type=%s", type_name.c_str());
         return false;
     }
     if (!sample) {
-        LOG_ERR("SampleFactory", "json_to_dds: null sample pointer provided for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "json_to_dds: null sample pointer provided for type=%s", type_name.c_str());
         return false;
     }
     // clear any previous error, then attempt conversion
@@ -89,9 +84,9 @@ bool json_to_dds(const nlohmann::json& j, const std::string& type_name, void* sa
     } else {
         const std::string& err = idlmeta::last_json_error();
         if (!err.empty()) {
-            LOG_ERR("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=%s", type_name.c_str(), err.c_str());
+            LOG_WRN("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=%s", type_name.c_str(), err.c_str());
         } else {
-            LOG_ERR("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=unknown (type/format mismatch)", type_name.c_str());
+            LOG_WRN("SampleFactory", "json_to_dds: failed to convert JSON to DDS for type=%s; reason=unknown (type/format mismatch)", type_name.c_str());
         }
     }
     return result;
@@ -109,18 +104,18 @@ bool dds_to_json(const std::string& type_name, const void* sample, nlohmann::jso
     const auto& jr = idlmeta::json_registry();
     auto it = jr.find(type_name);
     if (it == jr.end()) {
-        LOG_ERR("SampleFactory", "dds_to_json: no JSON registry entry for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "dds_to_json: no JSON registry entry for type=%s", type_name.c_str());
         return false;
     }
     if (!sample) {
-        LOG_ERR("SampleFactory", "dds_to_json: null sample pointer provided for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "dds_to_json: null sample pointer provided for type=%s", type_name.c_str());
         return false;
     }
     bool result = it->second.to_json(sample, out);
     if (result) {
         LOG_DBG("SampleFactory", "dds_to_json: DDS converted successfully to JSON for type=%s", type_name.c_str());
     } else {
-        LOG_ERR("SampleFactory", "dds_to_json: failed to convert DDS to JSON for type=%s", type_name.c_str());
+        LOG_WRN("SampleFactory", "dds_to_json: failed to convert DDS to JSON for type=%s", type_name.c_str());
     }
     return result;
 }

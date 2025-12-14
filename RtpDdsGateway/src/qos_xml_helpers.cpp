@@ -6,6 +6,7 @@
 #include "qos_xml_helpers.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <fstream>
 #include <rti/core/policy/CorePolicy.hpp>
 

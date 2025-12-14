@@ -1,0 +1,14 @@
+# (선택) 빌드 클린
+cmake --build build-vx --target clean
+
+# 재구성 (Debug 빌드, -g 디버그 플래그 명시)
+cmake -S . -B build-vx -G Ninja -DCMAKE_TOOLCHAIN_FILE=./VxWorks/toolchain-vxworks-ppce6500.cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS_DEBUG="-g" -DCMAKE_CXX_FLAGS_DEBUG="-g" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# 재구성 (Release 빌드, 최적화 플래그 예시)
+# 필요시 -DNDEBUG 매크로 추가: -DCMAKE_C_FLAGS_RELEASE="-O2 -DNDEBUG" -DCMAKE_CXX_FLAGS_RELEASE="-O2 -DNDEBUG"
+cmake -S . -B build-vx -G Ninja -DCMAKE_TOOLCHAIN_FILE=./VxWorks/toolchain-vxworks-ppce6500.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS_RELEASE="-O2" -DCMAKE_CXX_FLAGS_RELEASE="-O2" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
+# 빌드(자세한 출력)
+cmake --build build-vx -v
+cmake --build build-vx --clean-first
+cmake --build build-vx --target RtpDdsGateway --clean-first

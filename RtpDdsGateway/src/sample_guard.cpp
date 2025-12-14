@@ -13,9 +13,7 @@ SampleGuard::SampleGuard(const std::string& type_name)
     : type_name_(type_name), sample_(nullptr)
 {
     sample_ = create_sample(type_name_);
-    if (sample_) {
-        LOG_FLOW("created sample for type=%s ptr=%p", type_name_.c_str(), sample_);
-    } else {
+    if (!sample_) {
         LOG_ERR("SampleGuard", "failed to create sample for type=%s", type_name_.c_str());
     }
 }
@@ -23,7 +21,6 @@ SampleGuard::SampleGuard(const std::string& type_name)
 SampleGuard::~SampleGuard()
 {
     if (sample_) {
-        LOG_FLOW("destroying sample for type=%s ptr=%p", type_name_.c_str(), sample_);
         destroy_sample(type_name_, sample_);
         sample_ = nullptr;
     }
