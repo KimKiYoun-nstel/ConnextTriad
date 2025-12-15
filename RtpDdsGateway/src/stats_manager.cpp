@@ -88,9 +88,11 @@ void StatsManager::set_entity_snapshot(size_t participants, size_t publishers, s
 StatsSnapshot StatsManager::snapshot_and_reset_counts()
 {
     StatsSnapshot s;
-    // timestamp
+    // timestamp: use Korea Standard Time (KST, UTC+9) for stats output
     auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    // shift to KST explicitly (UTC+9) so timestamp is independent of host local tz
+    auto now_kst = now + std::chrono::hours(9);
+    std::time_t t = std::chrono::system_clock::to_time_t(now_kst);
     std::tm tm;
 #ifdef _MSC_VER
     gmtime_s(&tm, &t);
@@ -98,7 +100,8 @@ StatsSnapshot StatsManager::snapshot_and_reset_counts()
     gmtime_r(&t, &tm);
 #endif
     std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%SZ");
+    // format like 2025-12-15T13:31:00+09:00
+    oss << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S");
     s.timestamp = oss.str();
 
     s.ipc_in = ipc_in_.exchange(0, std::memory_order_relaxed);
@@ -138,7 +141,10 @@ void StatsManager::scheduler_thread()
         // compute sleep until next minute boundary (00 seconds)
         using namespace std::chrono;
         auto now = system_clock::now();
-        auto next = time_point_cast<minutes>(now) + minutes(1);
+        // calculate epoch seconds and round up to next 60-second boundary
+        auto epoch_secs = duration_cast<seconds>(now.time_since_epoch()).count();
+        auto next_epoch_secs = ((epoch_secs / 60) + 1) * 60;
+        auto next = system_clock::time_point(seconds(next_epoch_secs));
         std::this_thread::sleep_until(next);
 
         if (!running_) break;

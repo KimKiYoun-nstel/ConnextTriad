@@ -3,15 +3,15 @@
 	"tasks": [
 		{
 			"type": "cmake",
-			"label": "CMake: configure",
+			"label": "CMake: configure (linux-ninja-debug)",
 			"command": "configure",
 			"preset": "linux-ninja-debug",
 			"problemMatcher": [],
-			"detail": "CMake template configure task"
+			"detail": "CMake configure (linux)"
 		},
 		{
 			"type": "cmake",
-			"label": "CMake: build",
+			"label": "CMake: build (linux-ninja-debug)",
 			"command": "build",
 			"targets": [
 				"all"
@@ -19,7 +19,201 @@
 			"preset": "build-ninja-linux-debug",
 			"group": "build",
 			"problemMatcher": [],
-			"detail": "CMake template build task"
+			"detail": "CMake build (linux)"
+		},
+		{
+			"label": "MSVC: vcvars64 + configure (release)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --preset vscode-ninja-release"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "MSVC: vcvars64 + build (release)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build --preset build-ninja-vscode-release"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "MSVC: vcvars64 + clean rebuild (release)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build --preset build-ninja-vscode-release --target clean && cmake --build --preset build-ninja-vscode-release"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "MSVC: vcvars64 + configure (debug)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --preset vscode-ninja-debug"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "MSVC: vcvars64 + build (debug)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build --preset build-ninja-vscode-debug"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "MSVC: vcvars64 + clean rebuild (debug)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"call \"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvars64.bat\" && cmake --build --preset build-ninja-vscode-debug --target clean && cmake --build --preset build-ninja-vscode-debug"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Vx CMake: Clean Debug",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd clean-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"label": "Vx CMake: Clean Release",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd clean-release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"label": "Vx CMake: Configure Debug",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd conf-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"label": "Vx CMake: Configure Release",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd conf-release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"label": "Vx CMake: Build Debug (RtpDdsGateway)",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd build-debug"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
+		},
+		{
+			"label": "Vx CMake: Build Release (RtpDdsGateway)",
+			"type": "process",
+			"command": "D:\\WindRiver\\wrenv.exe",
+			"args": [
+				"cmd.exe",
+				"/d",
+				"/s",
+				"/c",
+				"call VxWorks\\vx_set_env.cmd && call VxWorks\\vx_cmake_build.cmd build-release"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"clear": true
+			}
 		}
 	]
 }
