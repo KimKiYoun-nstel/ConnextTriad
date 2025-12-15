@@ -28,7 +28,6 @@
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
-
     {
       "name": "linux-ninja",
       "description": "Base: Linux Ninja generator (gcc/g++)",
@@ -56,7 +55,6 @@
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
-
     {
       "name": "vs2022-msvc",
       "description": "Visual Studio 17 2022 generator with vcpkg toolchain (multi-config)",
@@ -67,9 +65,35 @@
         "VCPKG_TARGET_TRIPLET": "x64-windows",
         "BUILD_UI": "OFF"
       }
+    },
+    {
+      "name": "vscode-ninja",
+      "inherits": "vs2022-ninja",
+      "description": "VSCode-friendly Ninja generator",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "D:/package/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "BUILD_UI": "OFF"
+      }
+    },
+    {
+      "name": "vscode-ninja-debug",
+      "inherits": "vscode-ninja",
+      "description": "VSCode Ninja (Debug)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "vscode-ninja-release",
+      "inherits": "vscode-ninja",
+      "description": "VSCode Ninja (Release)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
-
   "buildPresets": [
     {
       "name": "build-msvc-debug",
@@ -102,6 +126,16 @@
       "name": "build-ninja-linux-release",
       "description": "Build on Linux using Ninja (Release)",
       "configurePreset": "linux-ninja-release"
+    },
+    {
+      "name": "build-ninja-vscode-debug",
+      "description": "Build in VSCode using Ninja (Debug)",
+      "configurePreset": "vscode-ninja-debug"
+    },
+    {
+      "name": "build-ninja-vscode-release",
+      "description": "Build in VSCode using Ninja (Release)",
+      "configurePreset": "vscode-ninja-release"
     }
   ]
 }

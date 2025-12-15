@@ -2,7 +2,7 @@
 <dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="file:///C:/Program Files/rti_connext_dds-7.5.0/bin/../resource/app/app_support/rtiddsgen/schema/rti_dds_profiles.xsd">
 <types>
 <include file="LDM_Common.xml"/>
-<module name="P_UCMS">
+<module name="P_Usage_And_Condition_Monitoring_PSM">
   <enum name="T_Monitored_Entity_StateType">
     <enumerator name="L_Monitored_Entity_StateType_ON"/>
     <enumerator name="L_Monitored_Entity_StateType_OFF"/>
@@ -69,7 +69,7 @@
     <member name="A_unit" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_ShortString"/>
     <member name="A_descriptor" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_LongString"/>
     <member name="A_publishingIntervalInSeconds" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
-    <member name="A_characteristicKind" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_MonitoredCharacteristicKind"/>
+    <member name="A_characteristicKind" type="nonBasic"  nonBasicTypeName= "P_Usage_And_Condition_Monitoring_PSM::T_MonitoredCharacteristicKind"/>
     <member name="A_specifiedMonitoredCharacteristic_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_thresholds_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
   </struct>
@@ -78,13 +78,13 @@
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType" key="true"/>
     <member name="A_referenceNum" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
-    <member name="A_type" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_BITType"/>
+    <member name="A_type" type="nonBasic"  nonBasicTypeName= "P_Usage_And_Condition_Monitoring_PSM::T_BITType"/>
   </struct>
   <struct name= "C_Monitored_Entity">
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType" key="true"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
-    <member name="A_healthStatus" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_HealthStatus"/>
-    <member name="A_currentState" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_Monitored_Entity_StateType"/>
+    <member name="A_healthStatus" type="nonBasic"  nonBasicTypeName= "P_Usage_And_Condition_Monitoring_PSM::T_HealthStatus"/>
+    <member name="A_currentState" type="nonBasic"  nonBasicTypeName= "P_Usage_And_Condition_Monitoring_PSM::T_Monitored_Entity_StateType"/>
     <member name="A_specification_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_monitoredCharacteristics_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_failureEvents_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
@@ -122,7 +122,7 @@
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
     <member name="A_name" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_MediumString"/>
     <member name="A_value" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
-    <member name="A_type" type="nonBasic"  nonBasicTypeName= "P_UCMS::T_ThresholdType"/>
+    <member name="A_type" type="nonBasic"  nonBasicTypeName= "P_Usage_And_Condition_Monitoring_PSM::T_ThresholdType"/>
     <member name="A_maxDuration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
     <member name="A_maxNumberOfRepetitions" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
     <member name="A_conditionedThresholds_sourceID" sequenceMaxLength="100" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
