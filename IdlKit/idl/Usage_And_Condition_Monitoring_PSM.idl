@@ -1,6 +1,6 @@
 #include "LDM_Common.idl"
 
-module P_UCMS
+module P_Usage_And_Condition_Monitoring_PSM
 {
    enum T_Monitored_Entity_StateType
    {
@@ -100,7 +100,7 @@ module P_UCMS
       P_LDM_Common::T_ShortString A_unit;
       P_LDM_Common::T_LongString A_descriptor;
       P_LDM_Common::T_Int32 A_publishingIntervalInSeconds;
-      P_UCMS::T_MonitoredCharacteristicKind A_characteristicKind;
+      T_MonitoredCharacteristicKind A_characteristicKind;
       sequence <P_LDM_Common::T_IdentifierType> A_specifiedMonitoredCharacteristic_sourceID;
       P_LDM_Common::T_IdentifierType A_thresholds_sourceID;
    };
@@ -111,7 +111,7 @@ module P_UCMS
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
       P_LDM_Common::T_Int32 A_referenceNum;
       P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
-      P_UCMS::T_BITType A_type;
+      T_BITType A_type;
    };
 
    // The status of system (platform or sub-system) whose usage and condition is being monitored.
@@ -119,7 +119,7 @@ module P_UCMS
    {
       P_LDM_Common::T_IdentifierType A_sourceID; //@key
       P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
-      P_UCMS::T_HealthStatus A_healthStatus;
+      T_HealthStatus A_healthStatus;
       T_Monitored_Entity_StateType A_currentState;
       P_LDM_Common::T_IdentifierType A_specification_sourceID;
       sequence <P_LDM_Common::T_IdentifierType> A_monitoredCharacteristics_sourceID;
@@ -166,7 +166,7 @@ module P_UCMS
       P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
       P_LDM_Common::T_MediumString A_name;
       P_LDM_Common::T_Double A_value;
-      P_UCMS::T_ThresholdType A_type;
+      T_ThresholdType A_type;
       P_LDM_Common::T_Int32 A_maxDuration;
       P_LDM_Common::T_Int32 A_maxNumberOfRepetitions;
       sequence <P_LDM_Common::T_IdentifierType> A_conditionedThresholds_sourceID;

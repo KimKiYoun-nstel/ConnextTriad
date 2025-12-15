@@ -1,200 +1,213 @@
-
 #include "LDM_Common.idl"
-#include "Usage_And_Condition_Monitoring_PSM.idl"
 
 module P_NSTEL
 {
-    typedef float T_Float;
-
     enum T_OperationModeType
     {
         L_OperationModeType_NORMAL,
-        L_OperationModeType_EMER_GENCY,
+        L_OperationModeType_EMERGENCY,
         L_OperationModeType_MANUAL
     };
 
-    enum T_OnOffType
+    enum T_PalmModeType
     {
-        L_OnOffType_ON,
-        L_OnOffType_OFF
+        L_PalmModeType_ON,
+        L_PalmModeType_OFF
     };
 
-    enum T_TargetAllotType
+    enum T_TargetFixType
     {
-        L_TargetAllotType_ALLOT,
-        L_TargetAllotType_ETC
-    };
-
-    enum T_ArmPositionLockType
-    {
-        L_ArmPositionLockType_RELEASE,
-        L_ArmPositionLockType_LOCK
-    };
-
-    enum T_MainCannonReturnType
-    {
-        L_MainCannonReturnType_RELEASE,
-        L_MainCannonReturnType_COMMAND
-    };
-
-    enum T_MainCannonFixType
-    {
-        L_MainCannonFixType_RELEASE,
-        L_MainCannonFixType_COMMAND
-    };
-
-    enum T_MainCannonFixStatusType
-    {
-        L_MainCannonFixStatusType_NORMAL,
-        L_MainCannonFixStatusType_FIX
-    };
-
-    enum T_MainCannonReturnStatusType
-    {
-        L_MainCannonReturnStatusType_RUNNING,
-        L_MainCannonReturnStatusType_COMPLETE
-    };
-
-    enum T_ArmSafetyMainCannonLock
-    {
-        L_ArmSafetyMainCannonLock_NORMAL,
-        L_ArmSafetyMainCannonLock_COMPLETE
-    };
-
-    enum T_EquipOpenLockType
-    {
-        L_EquipOpenLockType_LOCK,
-        L_EquipOpenLockType_OPEN
-    };
-
-    enum T_ChangingStatusType
-    {
-        L_ChangingStatusType_NORMAL,
-        L_ChangingStatusType_DISCHARGE
-    };
-
-    enum T_DekClearanceType
-    {
-        L_DekClearanceType_OUTSIDE,
-        L_DekClearanceType_RUNNING
+        L_TargetFixType_FIXED,
+        L_TargetFixType_ETC
     };
 
     enum T_ArmPositionType
     {
-        L_ArmPositionType_NORMAL,
-        L_ArmPositionType_MANUAL
+        L_ArmPositionType_RELEASE,
+        L_ArmPositionType_DRIVING
     };
 
-    enum T_CannonDrivingDeviceShutdownType
+    enum T_CannonRestoreType
     {
-        L_CannonDrivingDeviceShutdownType_UNKNOWN,
-        L_CannonDrivingDeviceShutdownType_SHUTDOWN
+        L_CannonRestoreType_RELEASE,
+        L_CannonRestoreType_RESTORE
     };
 
-    struct C_Cannon_Driving_Device_resultBIT {
+    enum T_CannonFixType
+    {
+        L_CannonFixType_RELEASE,
+        L_CannonFixType_FIX
+    };
+
+    enum T_EquipOpenStatusType
+    {
+        L_EquipOpenStatusType_CLOSE,
+        L_EquipOpenStatusType_OPEN
+    };
+
+    enum T_CannonFixStatusType
+    {
+        L_CannonFixStatusType_NORMAL,
+        L_CannonFixStatusType_FIXED
+    };
+
+    enum T_DeckClearanceType
+    {
+        L_DeckClearanceType_OUT_OF_DECK,
+        L_DeckClearanceType_IN_DECK
+    };
+
+    enum T_CannonDrivingType
+    {
+        L_CannonDrivingType_DRIVING,
+        L_CannonDrivingType_DONE
+    };
+
+    enum T_CannonLockType
+    {
+        L_CannonLockType_NORMAL,
+        L_CannonLockType_LOCKED
+    };
+
+    enum T_ShutdownType
+    {
+        L_ShutdownType_UNKNOWN,
+        L_ShutdownType_SHUTDOWN
+    };
+
+    enum T_EnergyStorageStatusType
+    {
+        L_EnergyStorageStatusType_NORMAL,
+        L_EnergyStorageStatusType_DISCHARGE
+    };
+
+    enum T_BITResultType
+    {
+        L_BITResultType_NORMAL,
+        L_BITResultType_ABNORMAL
+    };
+
+    struct C_CannonDrivingDevice
+    {
         P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
+        P_LDM_Common::T_IdentifierType	A_specification_sourceID;
+    };
+
+    struct C_CannonDrivingDevice_Specification
+    {
+        P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
+        P_LDM_Common::T_Boolean	A_powerOnBITSupported;
+        P_LDM_Common::T_Boolean	A_continousBITSupported;
+        P_LDM_Common::T_Boolean	A_initiatedBITSupported;
+        P_LDM_Common::T_Int32	A_continousBITInterval;
+        sequence <P_LDM_Common::T_IdentifierType>	A_specifiedCannonDrivingDevices_sourceID;
+    };
+
+
+    struct C_CannonDrivingDevice_commandDriving
+    {
+        P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_IdentifierType	A_recepientID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
         P_LDM_Common::T_Int32	A_referenceNum;
-        P_LDM_Common::T_IdentifierType	A_runBITEntity_sourceID;
-        P_UCMS::T_BITType	A_type;
-        P_LDM_Common::T_Boolean	A_BITRunning;
-        P_LDM_Common::T_Boolean	A_upDownMotor;
-        P_LDM_Common::T_Boolean	A_roundMotor;
-        P_LDM_Common::T_Boolean	A_upDownAmp;
-        P_LDM_Common::T_Boolean	A_roundAmp;
-        P_LDM_Common::T_Boolean	A_baseGyro;
-        P_LDM_Common::T_Boolean	A_topForwardGryro;
-        P_LDM_Common::T_Boolean	A_vehicleForwardGyro;
-        P_LDM_Common::T_Boolean	A_power_Controller;
-        P_LDM_Common::T_Boolean	A_energyStorage;
-        P_LDM_Common::T_Boolean	A_directPower;
-        P_LDM_Common::T_Boolean	A_cableLoop;
+        P_LDM_Common::T_Double	A_roundPosition;
+        P_LDM_Common::T_Double	A_upDownPosition;
+        P_LDM_Common::T_Double	A_roundAngleVelocity;
+        P_LDM_Common::T_Double	A_upDownAngleVelocity;
+        P_LDM_Common::T_Double	A_cannonUpDownAngle;
+        P_LDM_Common::T_Double	A_topRelativeAngle;
+        T_OperationModeType	A_operationMode;
+        T_PalmModeType	A_parm;
+        T_TargetFixType	A_targetFix;
+        T_ArmPositionType	A_autoArmPosition;
+        T_ArmPositionType	A_manualArmPosition;
+        T_CannonRestoreType	A_mainCannonRestore;
+        T_CannonFixType	A_mainCannonFix;
+        T_EquipOpenStatusType	A_closureEquipOpenStatus;
     };
 
-    struct C_Cannon_Driving_Device_CBIT{
-        P_LDM_Common::T_IdentifierType	A_sourceID;
-        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
-        P_LDM_Common::T_IdentifierType	A_runBITEntity_sourceID;
-        P_UCMS::T_BITType	A_type;
-        P_LDM_Common::T_Boolean	A_upDownMotor;
-        P_LDM_Common::T_Boolean	A_roundMotor;
-        P_LDM_Common::T_Boolean	A_upDownAmp;
-        P_LDM_Common::T_Boolean	A_roundAmp;
-        P_LDM_Common::T_Boolean	A_baseGyro;
-        P_LDM_Common::T_Boolean	A_topForwardGryro;
-        P_LDM_Common::T_Boolean	A_vehicleForwardGyro;
-        P_LDM_Common::T_Boolean	A_powerController;
-        P_LDM_Common::T_Boolean	A_energyStorage;
-        P_LDM_Common::T_Boolean	A_directPower;
-        P_LDM_Common::T_Boolean	A_cableLoop;
-        P_LDM_Common::T_Boolean	A_upDownPark;
-        P_LDM_Common::T_Boolean	A_round_Park;
-        P_LDM_Common::T_Boolean	A_mainCannon_Lock;
-        P_LDM_Common::T_Boolean	A_commFault;
-    };
-
-    struct C_Cannon_Driving_Device_PBIT{
-        P_LDM_Common::T_IdentifierType	A_sourceID;
-        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
-        P_LDM_Common::T_IdentifierType	A_runBITEntity_sourceID;
-        P_UCMS::T_BITType	A_type;
-        P_LDM_Common::T_Boolean	A_BITRunning;
-        P_LDM_Common::T_Boolean	A_upDownMotor;
-        P_LDM_Common::T_Boolean	A_roundMotor;
-        P_LDM_Common::T_Boolean	A_upDownAmp;
-        P_LDM_Common::T_Boolean	A_roundAmp;
-        P_LDM_Common::T_Boolean	A_baseGyro;
-        P_LDM_Common::T_Boolean	A_topForwardGryro;
-        P_LDM_Common::T_Boolean	A_vehicleForwardGyroi;
-        P_LDM_Common::T_Boolean	A_powerController;
-        P_LDM_Common::T_Boolean	A_energyStorage;
-        P_LDM_Common::T_Boolean	A_directPower;
-        P_LDM_Common::T_Boolean	A_cableLoop;
-    };
-
-    struct C_Vehicle_Speed{
-        P_LDM_Common::T_IdentifierType A_sourceID;
-        P_LDM_Common::T_DateTimeType A_timeOfDataGeneration;
-        P_LDM_Common::T_SpeedInMetresPerSecType A_speed;
-    };
-
-    struct C_Cannon_Actuator_Control
+    struct C_CannonDrivingDevice_Signal
     {
-        P_LDM_Common::T_IdentifierType	A_recipientID;
         P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_IdentifierType	A_recepientID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
-        P_NSTEL::T_Float	A_drivingPosition;
-        P_NSTEL::T_Float	A_upDownPosition;
-        P_NSTEL::T_Float	A_roundAngleVelocity;
-        P_NSTEL::T_Float	A_upDownAngleVelocity;
-        P_NSTEL::T_Float	A_cannonUpDownAngle;
-        P_NSTEL::T_Float	A_topRelativeAngle;
-        P_NSTEL::T_OperationModeType	A_operationMode;
-        P_NSTEL::T_OnOffType	A_parm;
-        P_NSTEL::T_TargetAllotType	A_targetDesingation;
-        P_NSTEL::T_ArmPositionLockType	A_autoArmPosition;
-        P_NSTEL::T_ArmPositionLockType	A_manualArmPosition;
-        P_NSTEL::T_MainCannonReturnType	A_mainCannonRestore;
-        P_NSTEL::T_MainCannonFixType	A_manCannonFix;
-        P_NSTEL::T_EquipOpenLockType	A_closeEquipOpenStatus;
+        P_LDM_Common::T_Double	A_azAngleVelocity;
+        P_LDM_Common::T_Double	A_e1AngleVelocity;
+        T_EnergyStorageStatusType	A_energyStorage;
+        T_CannonFixType	A_mainCannonFixStatus;
+        T_DeckClearanceType	A_deckCleance;
+        T_CannonDrivingType	A_autoArmPositionComplement;
+        T_CannonDrivingType	A_manualArmPositionComplement;
+        T_CannonDrivingType	A_mainCannonRestoreComplement;
+        T_CannonLockType	A_armSafetyMainCannonLock;
+        T_ShutdownType	A_shutdown;
+        P_LDM_Common::T_Double	A_roundGyro;
+        P_LDM_Common::T_Double	A_upDownGyro;
     };
 
-    struct C_Cannon_Actuator_Signal
-    {
-        P_LDM_Common::T_IdentifierType	A_recipientID;
-        P_LDM_Common::T_IdentifierType	A_sourceID ;
+    struct C_VehicleSpeed{
+        P_LDM_Common::T_IdentifierType	A_sourceID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
-        P_NSTEL::T_Float	A_azAngle;
-        P_NSTEL::T_Float	A_e1AngleVelocity;
-        P_NSTEL::T_ChangingStatusType	A_energyStorage;
-        P_NSTEL::T_MainCannonFixStatusType	A_mainCannonFixStatus;
-        P_NSTEL::T_DekClearanceType	A_deckClearance;
-        P_NSTEL::T_ArmPositionType	A_autoArmPositionComplement;
-        P_NSTEL::T_ArmPositionType	A_manualArmPositionComple;
-        P_NSTEL::T_MainCannonReturnStatusType	A_mainCannonRestoreComplement;
-        P_NSTEL::T_ArmSafetyMainCannonLock	A_armSafetyMainCannonLock;
-        P_NSTEL::T_CannonDrivingDeviceShutdownType	A_shutdown;
-        P_NSTEL::T_Float	A_roundGyro;
-        P_NSTEL::T_Float	A_upDownGyro;
+        P_LDM_Common::T_Double	A_value;
+    };
+
+    struct C_CannonDrivingDevice_PowerOnBIT {
+        P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
+        P_LDM_Common::T_IdentifierType	A_cannonDrivingDevice_sourceID;
+        P_LDM_Common::T_Boolean	A_BITRunning;
+        T_BITResultType	A_upDownMotor;
+        T_BITResultType	A_roundMotor;
+        T_BITResultType	A_upDownAmp;
+        T_BITResultType	A_roundAmp;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGryro;
+        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_powerController;
+        T_BITResultType	A_energyStorage;
+        T_BITResultType	A_directPower;
+        T_BITResultType	A_cableLoop;
+    };
+
+    struct C_CannonDrivingDevice_PBIT{
+        P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
+        P_LDM_Common::T_IdentifierType	A_cannonDrivingDevice_sourceID;
+        T_BITResultType	A_upDownMotor;
+        T_BITResultType	A_roundMotor;
+        T_BITResultType	A_upDownAmp;
+        T_BITResultType	A_roundAmp;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGryro;
+        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_powerController;
+        T_BITResultType	A_energyStorage;
+        T_BITResultType	A_directPower;
+        T_BITResultType	A_cableLoop;
+        T_BITResultType	A_upDownPark;
+        T_BITResultType	A_roundPark;
+        T_BITResultType	A_mainCannonLock;
+        T_BITResultType	A_controllerNetwork;
+    };
+
+    struct C_CannonDrivingDevice_IBIT{
+        P_LDM_Common::T_IdentifierType	A_sourceID;
+        P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
+        P_LDM_Common::T_IdentifierType	A_cannonDrivingDevice_sourceID;
+        P_LDM_Common::T_Boolean	A_BITRunning;
+        T_BITResultType	A_upDownMotor;
+        T_BITResultType	A_roundMotor;
+        T_BITResultType	A_upDownAmp;
+        T_BITResultType	A_roundAmp;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGryro;
+        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_powerController;
+        T_BITResultType	A_energyStorage;
+        T_BITResultType	A_directPower;
+        T_BITResultType	A_cableLoop;
     };
 };
+
