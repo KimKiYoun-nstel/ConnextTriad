@@ -76,7 +76,7 @@
   </struct>
   <struct name= "C_CannonDrivingDevice_commandDriving">
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
-    <member name="A_recepientID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
+    <member name="A_recipientID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
     <member name="A_referenceNum" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
     <member name="A_roundPosition" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
@@ -96,7 +96,7 @@
   </struct>
   <struct name= "C_CannonDrivingDevice_Signal">
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
-    <member name="A_recepientID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
+    <member name="A_recipientID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
     <member name="A_azAngleVelocity" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
     <member name="A_e1AngleVelocity" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
@@ -108,8 +108,8 @@
     <member name="A_mainCannonRestoreComplement" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_CannonDrivingType"/>
     <member name="A_armSafetyMainCannonLock" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_CannonLockType"/>
     <member name="A_shutdown" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_ShutdownType"/>
-    <member name="A_roundGyro" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
-    <member name="A_upDownGyro" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
+    <member name="A_roundGiro" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
+    <member name="A_upDownGiro" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Double"/>
   </struct>
   <struct name= "C_VehicleSpeed">
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
@@ -125,9 +125,9 @@
     <member name="A_roundMotor" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_upDownAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_roundAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_baseGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_topForwardGryro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_vehicleForwardGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_baseGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_topForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_vehicleForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_powerController" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_energyStorage" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_directPower" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
@@ -141,9 +141,9 @@
     <member name="A_roundMotor" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_upDownAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_roundAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_baseGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_topForwardGryro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_vehicleForwardGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_baseGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_topForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_vehicleForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_powerController" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_energyStorage" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_directPower" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
@@ -157,14 +157,15 @@
     <member name="A_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
     <member name="A_timeOfDataGeneration" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_DateTimeType"/>
     <member name="A_cannonDrivingDevice_sourceID" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_IdentifierType"/>
+    <member name="A_referenceNum" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Int32"/>
     <member name="A_BITRunning" type="nonBasic"  nonBasicTypeName= "P_LDM_Common::T_Boolean"/>
     <member name="A_upDownMotor" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_roundMotor" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_upDownAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_roundAmp" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_baseGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_topForwardGryro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
-    <member name="A_vehicleForwardGyro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_baseGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_topForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
+    <member name="A_vehicleForwardGiro" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_powerController" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_energyStorage" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>
     <member name="A_directPower" type="nonBasic"  nonBasicTypeName= "P_NSTEL::T_BITResultType"/>

@@ -109,7 +109,7 @@ module P_NSTEL
     struct C_CannonDrivingDevice_commandDriving
     {
         P_LDM_Common::T_IdentifierType	A_sourceID;
-        P_LDM_Common::T_IdentifierType	A_recepientID;
+        P_LDM_Common::T_IdentifierType	A_recipientID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
         P_LDM_Common::T_Int32	A_referenceNum;
         P_LDM_Common::T_Double	A_roundPosition;
@@ -131,7 +131,7 @@ module P_NSTEL
     struct C_CannonDrivingDevice_Signal
     {
         P_LDM_Common::T_IdentifierType	A_sourceID;
-        P_LDM_Common::T_IdentifierType	A_recepientID;
+        P_LDM_Common::T_IdentifierType	A_recipientID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
         P_LDM_Common::T_Double	A_azAngleVelocity;
         P_LDM_Common::T_Double	A_e1AngleVelocity;
@@ -143,8 +143,8 @@ module P_NSTEL
         T_CannonDrivingType	A_mainCannonRestoreComplement;
         T_CannonLockType	A_armSafetyMainCannonLock;
         T_ShutdownType	A_shutdown;
-        P_LDM_Common::T_Double	A_roundGyro;
-        P_LDM_Common::T_Double	A_upDownGyro;
+        P_LDM_Common::T_Double	A_roundGiro;
+        P_LDM_Common::T_Double	A_upDownGiro;
     };
 
     struct C_VehicleSpeed{
@@ -162,9 +162,9 @@ module P_NSTEL
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGyro;
-        T_BITResultType	A_topForwardGryro;
-        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_baseGiro;
+        T_BITResultType	A_topForwardGiro;
+        T_BITResultType	A_vehicleForwardGiro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
@@ -179,9 +179,9 @@ module P_NSTEL
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGyro;
-        T_BITResultType	A_topForwardGryro;
-        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_baseGiro;
+        T_BITResultType	A_topForwardGiro;
+        T_BITResultType	A_vehicleForwardGiro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
@@ -196,14 +196,15 @@ module P_NSTEL
         P_LDM_Common::T_IdentifierType	A_sourceID;
         P_LDM_Common::T_DateTimeType	A_timeOfDataGeneration;
         P_LDM_Common::T_IdentifierType	A_cannonDrivingDevice_sourceID;
+        P_LDM_Common::T_Int32	A_referenceNum;
         P_LDM_Common::T_Boolean	A_BITRunning;
         T_BITResultType	A_upDownMotor;
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGyro;
-        T_BITResultType	A_topForwardGryro;
-        T_BITResultType	A_vehicleForwardGyro;
+        T_BITResultType	A_baseGiro;
+        T_BITResultType	A_topForwardGiro;
+        T_BITResultType	A_vehicleForwardGiro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
