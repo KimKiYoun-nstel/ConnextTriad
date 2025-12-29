@@ -6,6 +6,7 @@
 #include <ctime>
 #include <iostream>
 #include <nlohmann/json.hpp>
+#include "triad_log.hpp"
 
 namespace rtpdds {
 
@@ -31,7 +32,12 @@ void StatsManager::start()
 {
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) return;
-    thread_ = std::thread(&StatsManager::scheduler_thread, this);
+#ifdef RTI_VXWORKS
+    thread_.start([this]{ scheduler_thread(); }, "DA_Stats");
+#else
+    thread_ = std::thread([this]{ triad::set_thread_name("DA_Stats"); scheduler_thread(); });
+#endif
+    LOG_INF("Stats", "StatsManager thread started");
 }
 
 void StatsManager::stop()
@@ -137,6 +143,7 @@ StatsSnapshot StatsManager::snapshot_and_reset_counts()
 
 void StatsManager::scheduler_thread()
 {
+    LOG_INF("Stats", "StatsManager scheduler_thread running");
     while (running_) {
         // compute sleep until next minute boundary (00 seconds)
         using namespace std::chrono;
@@ -175,12 +182,13 @@ void StatsManager::output_snapshot(const StatsSnapshot& s)
     }
 
     // Console
-    // Output according to selected format
+    // Output according to selected format (use triad logger for platform-consistent output)
     if (format_ == OutputFormat::Text) {
-        std::cout << out.str();
+        LOG_INF("Stats", "%s", out.str().c_str());
         if (file_output_ && !file_path_.empty()) {
             std::ofstream f(file_path_, std::ios::app);
             if (f.is_open()) { f << out.str(); f.close(); }
+            else { LOG_WRN("Stats", "failed to open stats file: %s", file_path_.c_str()); }
         }
     } else if (format_ == OutputFormat::CSV) {
         // CSV: header lines then rows
@@ -208,8 +216,8 @@ void StatsManager::output_snapshot(const StatsSnapshot& s)
             csv << s.timestamp << ",MSG_COUNT," << kv.first << ",reader_takes," << kv.second << "\n";
             csv << s.timestamp << ",MSG_COUNT," << kv.first << ",reader_matched," << matched << "\n";
         }
-        std::cout << csv.str();
-        if (file_output_ && !file_path_.empty()) { std::ofstream f(file_path_, std::ios::app); if (f.is_open()) { f << csv.str(); f.close(); } }
+        LOG_INF("Stats", "%s", csv.str().c_str());
+        if (file_output_ && !file_path_.empty()) { std::ofstream f(file_path_, std::ios::app); if (f.is_open()) { f << csv.str(); f.close(); } else { LOG_WRN("Stats", "failed to open stats file: %s", file_path_.c_str()); } }
     } else { // JSON
         nlohmann::json j;
         j["timestamp"] = s.timestamp;
@@ -239,8 +247,8 @@ void StatsManager::output_snapshot(const StatsSnapshot& s)
         }
         j["messages"] = msgs;
         std::string outj = j.dump();
-        std::cout << outj << std::endl;
-        if (file_output_ && !file_path_.empty()) { std::ofstream f(file_path_, std::ios::app); if (f.is_open()) { f << outj << std::endl; f.close(); } }
+        LOG_INF("Stats", "%s", outj.c_str());
+        if (file_output_ && !file_path_.empty()) { std::ofstream f(file_path_, std::ios::app); if (f.is_open()) { f << outj << std::endl; f.close(); } else { LOG_WRN("Stats", "failed to open stats file: %s", file_path_.c_str()); } }
     }
 }
 

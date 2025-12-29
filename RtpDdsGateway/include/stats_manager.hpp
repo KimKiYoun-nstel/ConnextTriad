@@ -13,6 +13,7 @@
 #include <thread>
 #include <chrono>
 #include <cstdint>
+#include "../../DkmRtpIpc/include/triad_thread.hpp"
 
 namespace rtpdds {
 
@@ -102,7 +103,7 @@ private:
 
     
 
-    std::thread thread_;
+    triad::TriadThread thread_;
     std::atomic<bool> running_ {false};
 };
 
