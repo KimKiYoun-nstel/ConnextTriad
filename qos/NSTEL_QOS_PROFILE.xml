@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dds xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+     xsi:noNamespaceSchemaLocation="file:////home/dotman/rti_connext_dds-7.5.0/resource/schema/rti_dds_qos_profiles.xsd">
+    <!-- QoS Library containing the QoS profile used in the generated example.
+        A QoS library is a named set of QoS profiles.
+    -->
+    <qos_library name="NstelQosLib">
+        <!-- 1) Participant 전용: UDPv4만 사용 -->
+        <qos_profile name="Participant_UDPv4_Only" is_default_qos="false">
+            <participant_qos>
+            <transport_builtin>
+            <mask>UDPv4</mask>
+            </transport_builtin>
+            </participant_qos>
+        </qos_profile>
+
+        <!-- 2) Pub/Sub 전용: Presentation/Partition (Participant 설정 상속) -->
+        <qos_profile name="PubSub_Base" base_name="NstelQosLib::Participant_UDPv4_Only">
+            <publisher_qos>
+                <presentation>
+                    <access_scope>GROUP_PRESENTATION_QOS</access_scope>
+                    <coherent_access>true</coherent_access>
+                    <ordered_access>true</ordered_access>
+                </presentation>
+                <partition>
+                    <name>
+                        <element>Control</element>
+                        <element>Data/*</element>
+                    </name>
+                </partition>
+            </publisher_qos>
+            <subscriber_qos>
+                <presentation>
+                    <access_scope>GROUP_PRESENTATION_QOS</access_scope>
+                    <coherent_access>true</coherent_access>
+                    <ordered_access>true</ordered_access>
+                </presentation>
+                <partition>
+                    <name>
+                        <element>Control</element>
+                        <element>Data/*</element>
+                    </name>
+                </partition>
+            </subscriber_qos>
+        </qos_profile>
+
+        <qos_profile name="HighFrequencyPeriodicProfile" base_name="NstelQosLib::PubSub_Base">
+            <datawriter_qos>
+            <reliability>
+                <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>1</depth>
+            </history>
+            <durability>
+                <kind>VOLATILE_DURABILITY_QOS</kind>
+            </durability>
+            <deadline>
+                <period>
+                <sec>0</sec>
+                <nanosec>5000000</nanosec> </period>
+            </deadline>
+            </datawriter_qos>
+            <datareader_qos>
+            <reliability>
+                <kind>BEST_EFFORT_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>1</depth>
+            </history>
+            <durability>
+                <kind>VOLATILE_DURABILITY_QOS</kind>
+            </durability>
+            <deadline>
+                <period>
+                <sec>0</sec>
+                <nanosec>5000000</nanosec> </period>
+            </deadline>
+            </datareader_qos>
+        </qos_profile>
+        <qos_profile name="LowFrequencyStatusProfile" base_name="NstelQosLib::PubSub_Base"> 
+            <datawriter_qos> 
+            <reliability> 
+                <kind>RELIABLE_RELIABILITY_QOS</kind> 
+            </reliability> 
+            <history> 
+                <kind>KEEP_LAST_HISTORY_QOS</kind> 
+                <depth>1</depth> 
+            </history> 
+            <durability> 
+                <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind> 
+            </durability> 
+            <deadline> 
+                <period> 
+                <sec>1</sec> 
+                <nanosec>0</nanosec> 
+                </period> 
+            </deadline> 
+            </datawriter_qos> 
+             
+            <datareader_qos> 
+            <reliability> 
+                <kind>RELIABLE_RELIABILITY_QOS</kind> 
+            </reliability> 
+            <history> 
+                <kind>KEEP_LAST_HISTORY_QOS</kind> 
+                <depth>1</depth> 
+            </history> 
+            <durability> 
+                <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind> 
+            </durability> 
+            <deadline> 
+                <period> 
+                <sec>1</sec> 
+                <nanosec>0</nanosec> 
+                </period> 
+            </deadline> 
+            </datareader_qos> 
+        </qos_profile> 
+        <qos_profile name="LowFrequencyVehicleProfile" base_name="NstelQosLib::LowFrequencyStatusProfile">
+            <datawriter_qos>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>5</depth>
+            </history>
+            </datawriter_qos>
+            <datareader_qos>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>5</depth>
+            </history>
+            </datareader_qos>
+        </qos_profile>
+        <qos_profile name="NonPeriodicEventProfile" base_name="NstelQosLib::PubSub_Base">
+            <datawriter_qos>
+            <reliability>
+                <kind>RELIABLE_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_ALL_HISTORY_QOS</kind>
+            </history>
+            <durability>
+                <kind>VOLATILE_DURABILITY_QOS</kind>
+            </durability>
+            <resource_limits>
+                <max_samples>1000</max_samples>
+            </resource_limits>
+            </datawriter_qos>
+            <datareader_qos>
+            <reliability>
+                <kind>RELIABLE_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_ALL_HISTORY_QOS</kind>
+            </history>
+            <durability>
+                <kind>VOLATILE_DURABILITY_QOS</kind>
+            </durability>
+            <resource_limits>
+                <max_samples>1000</max_samples>
+            </resource_limits>
+            </datareader_qos>
+        </qos_profile>
+        <qos_profile name="InitialStateProfile" base_name="NstelQosLib::PubSub_Base">
+            <datawriter_qos>
+            <reliability>
+                <kind>RELIABLE_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>1</depth>
+            </history>
+            <durability>
+                <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+            </durability>
+            </datawriter_qos>
+            <datareader_qos>
+            <reliability>
+                <kind>RELIABLE_RELIABILITY_QOS</kind>
+            </reliability>
+            <history>
+                <kind>KEEP_LAST_HISTORY_QOS</kind>
+                <depth>1</depth>
+            </history>
+            <durability>
+                <kind>TRANSIENT_LOCAL_DURABILITY_QOS</kind>
+            </durability>
+            </datareader_qos>
+        </qos_profile>
+    </qos_library>
+</dds>

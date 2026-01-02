@@ -143,8 +143,8 @@ module P_NSTEL
         T_CannonDrivingType	A_mainCannonRestoreComplement;
         T_CannonLockType	A_armSafetyMainCannonLock;
         T_ShutdownType	A_shutdown;
-        P_LDM_Common::T_Double	A_roundGiro;
-        P_LDM_Common::T_Double	A_upDownGiro;
+        P_LDM_Common::T_Double	A_roundGyro;
+        P_LDM_Common::T_Double	A_upDownGyro;
     };
 
     struct C_VehicleSpeed{
@@ -162,9 +162,9 @@ module P_NSTEL
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGiro;
-        T_BITResultType	A_topForwardGiro;
-        T_BITResultType	A_vehicleForwardGiro;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGyro;
+        T_BITResultType	A_vehicleForwardGyro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
@@ -179,9 +179,9 @@ module P_NSTEL
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGiro;
-        T_BITResultType	A_topForwardGiro;
-        T_BITResultType	A_vehicleForwardGiro;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGyro;
+        T_BITResultType	A_vehicleForwardGyro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
@@ -202,9 +202,9 @@ module P_NSTEL
         T_BITResultType	A_roundMotor;
         T_BITResultType	A_upDownAmp;
         T_BITResultType	A_roundAmp;
-        T_BITResultType	A_baseGiro;
-        T_BITResultType	A_topForwardGiro;
-        T_BITResultType	A_vehicleForwardGiro;
+        T_BITResultType	A_baseGyro;
+        T_BITResultType	A_topForwardGyro;
+        T_BITResultType	A_vehicleForwardGyro;
         T_BITResultType	A_powerController;
         T_BITResultType	A_energyStorage;
         T_BITResultType	A_directPower;
